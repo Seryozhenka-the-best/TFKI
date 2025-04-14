@@ -1,5 +1,8 @@
 #include "asteroids.h"
 #include <memory>
+#include <chrono>
+#include <SFML/Audio.hpp>
+#include <iostream>
 
 bool isCollide(const Entity* a, const Entity* b) {
     return (b->x - a->x) * (b->x - a->x) +
@@ -12,6 +15,17 @@ int main() {
 
     RenderWindow app(VideoMode(W, H), "Asteroids!");
     app.setFramerateLimit(60);
+
+    sf::Music backgroundMusic;
+    if (!backgroundMusic.openFromFile("doom.ogg")) {  // Use .ogg instead of .mp3
+        std::cerr << "Failed to load background music!" << std::endl;
+    }
+    else {
+        backgroundMusic.setLoop(true);
+        backgroundMusic.setVolume(50);
+        backgroundMusic.play();
+    }
+
     Texture t1, t2, t3, t4, t5, t6, t7;
     if (!t1.loadFromFile("spaceship.png") ||
         !t2.loadFromFile("background.jpg") ||
@@ -45,7 +59,16 @@ int main() {
     p->settings(sPlayer, W/2, H/2, 0, 20);
     Player* playerPtr = p.get();
     entities.push_back(std::move(p));
+
+    // Cooldown variables
+    float shootCooldown = 0.0f;
+    const float shootCooldownTime = 0.175f; // 0.175 seconds cooldown
+    Clock clock;
+
     while (app.isOpen()) {
+        float dt = clock.restart().asSeconds(); // Get frame time
+        shootCooldown -= dt; // Decrease cooldown timer
+
         Event event;
         while (app.pollEvent(event)) {
             if (event.type == Event::Closed) {
@@ -53,15 +76,20 @@ int main() {
             }
 
             if (event.type == Event::KeyPressed && event.key.code == Keyboard::Space) {
-                auto b = std::make_unique<Bullet>();
-                b->settings(sBullet, playerPtr->x, playerPtr->y, playerPtr->angle, 10);
-                entities.push_back(std::move(b));
+                // Only shoot if cooldown has expired
+                if (shootCooldown <= 0) {
+                    auto b = std::make_unique<Bullet>();
+                    b->settings(sBullet, playerPtr->x, playerPtr->y, playerPtr->angle, 10);
+                    entities.push_back(std::move(b));
+                    shootCooldown = shootCooldownTime; // Reset cooldown
+                }
             }
         }
 
         if (Keyboard::isKeyPressed(Keyboard::D)) playerPtr->angle += 3;
         if (Keyboard::isKeyPressed(Keyboard::A)) playerPtr->angle -= 3;
         playerPtr->thrust = Keyboard::isKeyPressed(Keyboard::W);
+
         for (auto itA = entities.begin(); itA != entities.end(); ++itA) {
             for (auto itB = std::next(itA); itB != entities.end(); ++itB) {
                 Entity* a = itA->get();
