@@ -136,7 +136,7 @@ public:
             dy *= 0.99;
         }
 
-        int maxSpeed = 15;
+        int maxSpeed = 5;
         float speed = sqrt(dx * dx + dy * dy);
         if (speed > maxSpeed) {
             dx *= maxSpeed / speed;
@@ -155,4 +155,4 @@ public:
 
 bool isCollide(const Entity* a, const Entity* b);
 
-#endif 
+#endif
