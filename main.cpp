@@ -20,6 +20,7 @@ int main() {
     int asteroidsShotThisLife = 0;
     int maxAsteroidsShot = 0;
 
+    // Load background music
     sf::Music backgroundMusic;
     if (!backgroundMusic.openFromFile("doom.ogg")) {
         std::cerr << "Failed to load background music!" << std::endl;
@@ -30,6 +31,18 @@ int main() {
         backgroundMusic.play();
     }
 
+    // Load shooting sound
+    sf::SoundBuffer shootBuffer;
+    sf::Sound shootSound;
+    if (!shootBuffer.loadFromFile("blaster.ogg")) {
+        std::cerr << "Failed to load shooting sound!" << std::endl;
+    }
+    else {
+        shootSound.setBuffer(shootBuffer);
+        shootSound.setVolume(70); // Slightly louder than background
+    }
+
+    // Load textures
     Texture t1, t2, t3, t4, t5, t6, t7;
     if (!t1.loadFromFile("spaceship.png") ||
         !t2.loadFromFile("background.jpg") ||
@@ -44,6 +57,7 @@ int main() {
     t1.setSmooth(true);
     t2.setSmooth(true);
 
+    // Create animations
     Sprite background(t2);
     Animation sExplosion(t3, 0, 0, 256, 256, 48, 0.5);
     Animation sRock(t4, 0, 0, 64, 64, 16, 0.2);
@@ -53,18 +67,20 @@ int main() {
     Animation sPlayer_go(t1, 40, 40, 40, 40, 1, 0);
     Animation sExplosion_ship(t7, 0, 0, 192, 192, 64, 0.5);
 
+    // Initialize entities
     std::list<std::unique_ptr<Entity>> entities;
     for (int i = 0; i < 15; i++) {
         auto a = std::make_unique<Asteroid>();
         a->settings(sRock, rand() % W, rand() % H, rand() % 360, 25);
         entities.push_back(std::move(a));
     }
+
     auto p = std::make_unique<Player>();
     p->settings(sPlayer, W/2, H/2, 0, 20);
     Player* playerPtr = p.get();
     entities.push_back(std::move(p));
 
-    // Cooldown variables
+    // Game loop variables
     float shootCooldown = 0.0f;
     const float shootCooldownTime = 0.175f;
     Clock clock;
@@ -85,14 +101,17 @@ int main() {
                     b->settings(sBullet, playerPtr->x, playerPtr->y, playerPtr->angle, 10);
                     entities.push_back(std::move(b));
                     shootCooldown = shootCooldownTime;
+                    shootSound.play(); // Play shooting sound
                 }
             }
         }
 
+        // Player controls
         if (Keyboard::isKeyPressed(Keyboard::D)) playerPtr->angle += 3;
         if (Keyboard::isKeyPressed(Keyboard::A)) playerPtr->angle -= 3;
         playerPtr->thrust = Keyboard::isKeyPressed(Keyboard::W);
 
+        // Collision detection
         for (auto itA = entities.begin(); itA != entities.end(); ++itA) {
             for (auto itB = std::next(itA); itB != entities.end(); ++itB) {
                 Entity* a = itA->get();
@@ -101,7 +120,7 @@ int main() {
                 if (a->name == "asteroid" && b->name == "bullet" && isCollide(a, b)) {
                     a->life = false;
                     b->life = false;
-                    asteroidsShotThisLife++;  // Increment counter
+                    asteroidsShotThisLife++;
 
                     auto explosion = std::make_unique<Explosion>();
                     explosion->settings(sExplosion, a->x, a->y);
@@ -119,17 +138,14 @@ int main() {
                 if (a->name == "player" && b->name == "asteroid" && isCollide(a, b)) {
                     b->life = false;
 
-                    // Update max asteroids shot if needed
                     if (asteroidsShotThisLife > maxAsteroidsShot) {
                         maxAsteroidsShot = asteroidsShotThisLife;
                     }
 
-                    // Print stats to console
                     std::cout << "--- Ship Destroyed! ---\n";
                     std::cout << "Asteroids shot this life: " << asteroidsShotThisLife << "\n";
                     std::cout << "Max asteroids shot (all time): " << maxAsteroidsShot << "\n\n";
 
-                    // Reset counter for new life
                     asteroidsShotThisLife = 0;
 
                     auto explosion = std::make_unique<Explosion>();
@@ -143,22 +159,26 @@ int main() {
             }
         }
 
+        // Update animations and clean up dead entities
         playerPtr->anim = playerPtr->thrust ? sPlayer_go : sPlayer;
         entities.remove_if([](const std::unique_ptr<Entity>& e) {
             return (e->name == "explosion" && e->anim.isEnd()) || !e->life;
         });
 
+        // Spawn new asteroids randomly
         if (rand() % 150 == 0) {
             auto a = std::make_unique<Asteroid>();
             a->settings(sRock, 0, rand() % H, rand() % 360, 25);
             entities.push_back(std::move(a));
         }
 
+        // Update all entities
         for (auto& e : entities) {
             e->update();
             e->anim.update();
         }
 
+        // Draw everything
         app.clear();
         app.draw(background);
         for (auto& e : entities) {
