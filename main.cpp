@@ -16,8 +16,12 @@ int main() {
     RenderWindow app(VideoMode(W, H), "Asteroids!");
     app.setFramerateLimit(60);
 
+    // Stats tracking
+    int asteroidsShotThisLife = 0;
+    int maxAsteroidsShot = 0;
+
     sf::Music backgroundMusic;
-    if (!backgroundMusic.openFromFile("doom.ogg")) {  // Use .ogg instead of .mp3
+    if (!backgroundMusic.openFromFile("doom.ogg")) {
         std::cerr << "Failed to load background music!" << std::endl;
     }
     else {
@@ -62,12 +66,12 @@ int main() {
 
     // Cooldown variables
     float shootCooldown = 0.0f;
-    const float shootCooldownTime = 0.175f; // 0.175 seconds cooldown
+    const float shootCooldownTime = 0.175f;
     Clock clock;
 
     while (app.isOpen()) {
-        float dt = clock.restart().asSeconds(); // Get frame time
-        shootCooldown -= dt; // Decrease cooldown timer
+        float dt = clock.restart().asSeconds();
+        shootCooldown -= dt;
 
         Event event;
         while (app.pollEvent(event)) {
@@ -76,12 +80,11 @@ int main() {
             }
 
             if (event.type == Event::KeyPressed && event.key.code == Keyboard::Space) {
-                // Only shoot if cooldown has expired
                 if (shootCooldown <= 0) {
                     auto b = std::make_unique<Bullet>();
                     b->settings(sBullet, playerPtr->x, playerPtr->y, playerPtr->angle, 10);
                     entities.push_back(std::move(b));
-                    shootCooldown = shootCooldownTime; // Reset cooldown
+                    shootCooldown = shootCooldownTime;
                 }
             }
         }
@@ -98,6 +101,7 @@ int main() {
                 if (a->name == "asteroid" && b->name == "bullet" && isCollide(a, b)) {
                     a->life = false;
                     b->life = false;
+                    asteroidsShotThisLife++;  // Increment counter
 
                     auto explosion = std::make_unique<Explosion>();
                     explosion->settings(sExplosion, a->x, a->y);
@@ -115,6 +119,19 @@ int main() {
                 if (a->name == "player" && b->name == "asteroid" && isCollide(a, b)) {
                     b->life = false;
 
+                    // Update max asteroids shot if needed
+                    if (asteroidsShotThisLife > maxAsteroidsShot) {
+                        maxAsteroidsShot = asteroidsShotThisLife;
+                    }
+
+                    // Print stats to console
+                    std::cout << "--- Ship Destroyed! ---\n";
+                    std::cout << "Asteroids shot this life: " << asteroidsShotThisLife << "\n";
+                    std::cout << "Max asteroids shot (all time): " << maxAsteroidsShot << "\n\n";
+
+                    // Reset counter for new life
+                    asteroidsShotThisLife = 0;
+
                     auto explosion = std::make_unique<Explosion>();
                     explosion->settings(sExplosion_ship, a->x, a->y);
                     entities.push_back(std::move(explosion));
@@ -125,19 +142,23 @@ int main() {
                 }
             }
         }
+
         playerPtr->anim = playerPtr->thrust ? sPlayer_go : sPlayer;
         entities.remove_if([](const std::unique_ptr<Entity>& e) {
             return (e->name == "explosion" && e->anim.isEnd()) || !e->life;
         });
+
         if (rand() % 150 == 0) {
             auto a = std::make_unique<Asteroid>();
             a->settings(sRock, 0, rand() % H, rand() % 360, 25);
             entities.push_back(std::move(a));
         }
+
         for (auto& e : entities) {
             e->update();
             e->anim.update();
         }
+
         app.clear();
         app.draw(background);
         for (auto& e : entities) {
