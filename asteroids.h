@@ -7,12 +7,18 @@
 #include <string>
 #include <cmath>
 #include <ctime>
+#include <limits>
+#include <memory>
 
 using namespace sf;
 
 const int W = 1200;
 const int H = 800;
 const float DEGTORAD = 0.017453f;
+
+// Forward declarations
+class Entity;
+extern std::list<std::unique_ptr<Entity>> entities;
 
 class Animation {
 public:
@@ -53,7 +59,7 @@ public:
     std::string name;
     Animation anim;
 
-    Entity() : life(true) {}
+    Entity() : x(0), y(0), dx(0), dy(0), R(1), angle(0), life(true) {}
 
     void settings(Animation& a, int X, int Y, float Angle = 0, int radius = 1) {
         anim = a;
@@ -64,13 +70,12 @@ public:
     }
 
     virtual void update() = 0;
-    virtual ~Entity() = default;
-
-    void draw(RenderWindow& app) {
+    virtual void draw(RenderWindow& app) {
         anim.sprite.setPosition(x, y);
         anim.sprite.setRotation(angle + 90);
         app.draw(anim.sprite);
     }
+    virtual ~Entity() = default;
 };
 
 class Explosion : public Entity {
@@ -79,8 +84,46 @@ public:
         name = "explosion";
     }
 
+    void update() override {}
+};
+
+class ExplosionEffect : public Entity {
+public:
+    float radius;
+    float currentSize;
+    float growthRate;
+    int damageDealt;
+
+    ExplosionEffect() : radius(100), currentSize(0), growthRate(150), damageDealt(0) {
+        name = "explosionEffect";
+    }
+
     void update() override {
-        // Explosions don't move
+        if (currentSize < radius) {
+            currentSize += growthRate * 0.016f;
+
+            // Check collisions with asteroids
+            for (auto& e : entities) {
+                if (e->name == "asteroid" && e->life) {
+                    float dist = sqrt((e->x - x) * (e->x - x) + (e->y - y) * (e->y - y));
+                    if (dist < currentSize + e->R) {
+                        e->life = false;
+                        damageDealt++;
+                    }
+                }
+            }
+        } else {
+            life = false;
+        }
+    }
+
+    void draw(RenderWindow& app) override {
+        CircleShape circle(currentSize);
+        circle.setPosition(x - currentSize, y - currentSize);
+        circle.setFillColor(Color(255, 50, 50, 100));
+        circle.setOutlineColor(Color::Red);
+        circle.setOutlineThickness(2);
+        app.draw(circle);
     }
 };
 
@@ -110,6 +153,43 @@ public:
     }
 
     void update() override {
+        dx = cos(angle * DEGTORAD) * 6;
+        dy = sin(angle * DEGTORAD) * 6;
+        x += dx;
+        y += dy;
+
+        if (x > W || x < 0 || y > H || y < 0) life = false;
+    }
+};
+
+class HomingBullet : public Entity {
+public:
+    Entity* target = nullptr;
+
+    HomingBullet() {
+        name = "homingbullet";
+    }
+
+    void update() override {
+        if (!target) {
+            float minDist = std::numeric_limits<float>::max();
+
+            for (auto& e : entities) {
+                if (e->name == "asteroid" && e->life) {
+                    float dist = (e->x - x) * (e->x - x) + (e->y - y) * (e->y - y);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        target = e.get();
+                    }
+                }
+            }
+        }
+
+        if (target && target->life) {
+            float targetAngle = atan2(target->y - y, target->x - x) / DEGTORAD;
+            angle = targetAngle;
+        }
+
         dx = cos(angle * DEGTORAD) * 6;
         dy = sin(angle * DEGTORAD) * 6;
         x += dx;
