@@ -26,6 +26,8 @@ int main() {
     // Game state
     bool gamePaused = false;
     bool pauseButtonHovered = false;
+    float brightness = 1.0f; // 0.0-1.0
+    bool soundEnabled = true;
 
     // Load font for UI
     sf::Font font;
@@ -63,13 +65,42 @@ int main() {
         pauseText.setPosition(W - 110, 25);
     }
 
+    // Setup sound and brightness buttons (only visible when paused)
+    sf::RectangleShape soundButton(sf::Vector2f(150, 40));
+    soundButton.setPosition(W/2 - 160, H/2 + 50);
+    soundButton.setFillColor(sf::Color(50, 50, 50, 200));
+    soundButton.setOutlineThickness(2);
+    soundButton.setOutlineColor(sf::Color::White);
+
+    sf::RectangleShape brightnessButton(sf::Vector2f(150, 40));
+    brightnessButton.setPosition(W/2 + 10, H/2 + 50);
+    brightnessButton.setFillColor(sf::Color(50, 50, 50, 200));
+    brightnessButton.setOutlineThickness(2);
+    brightnessButton.setOutlineColor(sf::Color::White);
+
+    sf::Text soundText;
+    sf::Text brightnessText;
+    if (font.getInfo().family != "") {
+        soundText.setFont(font);
+        soundText.setString(soundEnabled ? "SOUND: ON" : "SOUND: OFF");
+        soundText.setCharacterSize(20);
+        soundText.setFillColor(sf::Color::White);
+        soundText.setPosition(W/2 - 150, H/2 + 55);
+
+        brightnessText.setFont(font);
+        brightnessText.setString("BRIGHTNESS: " + std::to_string(int(brightness * 100)) + "%");
+        brightnessText.setCharacterSize(20);
+        brightnessText.setFillColor(sf::Color::White);
+        brightnessText.setPosition(W/2 + 20, H/2 + 55);
+    }
+
     // Load background music
     sf::Music backgroundMusic;
     if (!backgroundMusic.openFromFile("doom.ogg")) {
         std::cerr << "Failed to load background music!" << std::endl;
     } else {
         backgroundMusic.setLoop(true);
-        backgroundMusic.setVolume(50);
+        backgroundMusic.setVolume(soundEnabled ? 50 : 0);
         backgroundMusic.play();
     }
 
@@ -79,7 +110,7 @@ int main() {
         std::cerr << "Failed to load pause music!" << std::endl;
     } else {
         pauseMusic.setLoop(true);
-        pauseMusic.setVolume(50);
+        pauseMusic.setVolume(soundEnabled ? 50 : 0);
     }
 
     // Load shooting sound
@@ -89,10 +120,8 @@ int main() {
         std::cerr << "Failed to load shooting sound!" << std::endl;
     } else {
         shootSound.setBuffer(shootBuffer);
-        shootSound.setVolume(70);
+        shootSound.setVolume(soundEnabled ? 70 : 0);
     }
-
-
 
     // Load textures
     Texture t1, t2, t3, t4, t5, t6, t7, t8;
@@ -161,17 +190,40 @@ int main() {
                     sf::Vector2f mousePos = app.mapPixelToCoords(
                         sf::Vector2i(event.mouseButton.x, event.mouseButton.y));
 
+                    // Pause button
                     if (pauseButton.getGlobalBounds().contains(mousePos)) {
                         gamePaused = !gamePaused;
                         pauseText.setString(gamePaused ? "RESUME" : "PAUSE");
 
-                        // Handle music switching
                         if (gamePaused) {
                             backgroundMusic.pause();
-                            pauseMusic.play();
+                            if (soundEnabled) pauseMusic.play();
                         } else {
                             pauseMusic.stop();
-                            backgroundMusic.play();
+                            if (soundEnabled) backgroundMusic.play();
+                        }
+                    }
+
+                    // Sound and brightness buttons (only when paused)
+                    if (gamePaused) {
+                        if (soundButton.getGlobalBounds().contains(mousePos)) {
+                            soundEnabled = !soundEnabled;
+                            soundText.setString(soundEnabled ? "SOUND: ON" : "SOUND: OFF");
+
+                            // Update all sounds
+                            backgroundMusic.setVolume(soundEnabled ? 50 : 0);
+                            pauseMusic.setVolume(soundEnabled ? 50 : 0);
+                            shootSound.setVolume(soundEnabled ? 70 : 0);
+
+                            if (gamePaused && soundEnabled) {
+                                pauseMusic.play();
+                            }
+                        }
+
+                        if (brightnessButton.getGlobalBounds().contains(mousePos)) {
+                            brightness = brightness >= 1.0f ? 0.5f : brightness + 0.1f;
+                            if (brightness > 1.0f) brightness = 1.0f;
+                            brightnessText.setString("BRIGHTNESS: " + std::to_string(int(brightness * 100)) + "%");
                         }
                     }
                 }
@@ -180,9 +232,20 @@ int main() {
                 sf::Vector2f mousePos = app.mapPixelToCoords(
                     sf::Vector2i(event.mouseMove.x, event.mouseMove.y));
 
+                // Button hover effects
                 pauseButtonHovered = pauseButton.getGlobalBounds().contains(mousePos);
                 pauseButton.setFillColor(pauseButtonHovered ?
                     sf::Color(70, 70, 70, 200) : sf::Color(50, 50, 50, 200));
+
+                if (gamePaused) {
+                    bool soundHovered = soundButton.getGlobalBounds().contains(mousePos);
+                    soundButton.setFillColor(soundHovered ?
+                        sf::Color(70, 70, 70, 200) : sf::Color(50, 50, 50, 200));
+
+                    bool brightnessHovered = brightnessButton.getGlobalBounds().contains(mousePos);
+                    brightnessButton.setFillColor(brightnessHovered ?
+                        sf::Color(70, 70, 70, 200) : sf::Color(50, 50, 50, 200));
+                }
             }
 
             if (!gamePaused && event.type == Event::KeyPressed) {
@@ -191,14 +254,14 @@ int main() {
                     b->settings(sBullet, playerPtr->x, playerPtr->y, playerPtr->angle, 10);
                     entities.push_back(std::move(b));
                     shootCooldown = shootCooldownTime;
-                    shootSound.play();
+                    if (soundEnabled) shootSound.play();
                 }
                 else if (event.key.code == Keyboard::Enter && homingShootCooldown <= 0) {
                     auto b = std::make_unique<HomingBullet>();
                     b->settings(sHomingBullet, playerPtr->x, playerPtr->y, playerPtr->angle, 10);
                     entities.push_back(std::move(b));
                     homingShootCooldown = homingShootCooldownTime;
-                    shootSound.play();
+                    if (soundEnabled) shootSound.play();
                 }
             }
         }
@@ -332,7 +395,17 @@ int main() {
 
         // Draw everything
         app.clear();
-        app.draw(background);
+
+        // Apply brightness
+        if (brightness < 1.0f) {
+            sf::RectangleShape dimmer(sf::Vector2f(W, H));
+            dimmer.setFillColor(sf::Color(0, 0, 0, 255 * (1.0f - brightness)));
+            app.draw(background);
+            app.draw(dimmer);
+        } else {
+            app.draw(background);
+        }
+
         for (auto& e : entities) {
             e->draw(app);
         }
@@ -343,7 +416,7 @@ int main() {
         app.draw(pauseButton);
         app.draw(pauseText);
 
-        // Draw pause overlay if game is paused
+        // Draw pause overlay and buttons if game is paused
         if (gamePaused) {
             sf::RectangleShape overlay(sf::Vector2f(W, H));
             overlay.setFillColor(sf::Color(0, 0, 0, 150));
@@ -354,6 +427,12 @@ int main() {
                 pausedText.setPosition(W/2 - pausedText.getLocalBounds().width/2, H/2 - 50);
                 pausedText.setFillColor(sf::Color::White);
                 app.draw(pausedText);
+
+                // Draw settings buttons
+                app.draw(soundButton);
+                app.draw(brightnessButton);
+                app.draw(soundText);
+                app.draw(brightnessText);
             }
         }
 
