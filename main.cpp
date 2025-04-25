@@ -1,6 +1,10 @@
 #include "Asteroids.h"
 #include <SFML/Audio.hpp>
+#include <SFML/Graphics/Text.hpp>
+#include <SFML/Graphics/Font.hpp>
+#include <SFML/Graphics/RectangleShape.hpp>
 #include <iostream>
+#include <sstream>
 
 std::list<std::unique_ptr<Entity>> entities;
 int asteroidsShotDirectly = 0;
@@ -19,7 +23,47 @@ int main() {
     RenderWindow app(VideoMode(W, H), "Asteroids!");
     app.setFramerateLimit(60);
 
-    // Load and setup background music
+    // Game state
+    bool gamePaused = false;
+    bool pauseButtonHovered = false;
+
+    // Load font for UI
+    sf::Font font;
+    if (!font.loadFromFile("Roboto-Bold.ttf")) {
+        std::cerr << "Failed to load font! Using default." << std::endl;
+    }
+
+    // Setup score display (top-left)
+    sf::Text scoreText;
+    sf::Text recordText;
+    if (font.getInfo().family != "") {
+        scoreText.setFont(font);
+        recordText.setFont(font);
+        scoreText.setCharacterSize(24);
+        recordText.setCharacterSize(24);
+        scoreText.setFillColor(sf::Color::White);
+        recordText.setFillColor(sf::Color::White);
+        scoreText.setPosition(20, 20);
+        recordText.setPosition(20, 50);
+    }
+
+    // Setup pause button (top-right)
+    sf::RectangleShape pauseButton(sf::Vector2f(100, 40));
+    pauseButton.setPosition(W - 120, 20);
+    pauseButton.setFillColor(sf::Color(50, 50, 50, 200));
+    pauseButton.setOutlineThickness(2);
+    pauseButton.setOutlineColor(sf::Color::White);
+
+    sf::Text pauseText;
+    if (font.getInfo().family != "") {
+        pauseText.setFont(font);
+        pauseText.setString("PAUSE");
+        pauseText.setCharacterSize(20);
+        pauseText.setFillColor(sf::Color::White);
+        pauseText.setPosition(W - 110, 25);
+    }
+
+    // Load background music
     sf::Music backgroundMusic;
     if (!backgroundMusic.openFromFile("doom.ogg")) {
         std::cerr << "Failed to load background music!" << std::endl;
@@ -29,7 +73,16 @@ int main() {
         backgroundMusic.play();
     }
 
-    // Load shooting sound only
+    // Load pause music
+    sf::Music pauseMusic;
+    if (!pauseMusic.openFromFile("pause.ogg")) {
+        std::cerr << "Failed to load pause music!" << std::endl;
+    } else {
+        pauseMusic.setLoop(true);
+        pauseMusic.setVolume(50);
+    }
+
+    // Load shooting sound
     sf::SoundBuffer shootBuffer;
     sf::Sound shootSound;
     if (!shootBuffer.loadFromFile("blaster.ogg")) {
@@ -38,6 +91,8 @@ int main() {
         shootSound.setBuffer(shootBuffer);
         shootSound.setVolume(70);
     }
+
+
 
     // Load textures
     Texture t1, t2, t3, t4, t5, t6, t7, t8;
@@ -88,8 +143,11 @@ int main() {
 
     while (app.isOpen()) {
         float dt = clock.restart().asSeconds();
-        shootCooldown -= dt;
-        homingShootCooldown -= dt;
+
+        if (!gamePaused) {
+            shootCooldown -= dt;
+            homingShootCooldown -= dt;
+        }
 
         // Event handling
         Event event;
@@ -98,8 +156,36 @@ int main() {
                 app.close();
             }
 
-            if (event.type == Event::KeyPressed) {
-                // Regular bullet
+            if (event.type == Event::MouseButtonPressed) {
+                if (event.mouseButton.button == sf::Mouse::Left) {
+                    sf::Vector2f mousePos = app.mapPixelToCoords(
+                        sf::Vector2i(event.mouseButton.x, event.mouseButton.y));
+
+                    if (pauseButton.getGlobalBounds().contains(mousePos)) {
+                        gamePaused = !gamePaused;
+                        pauseText.setString(gamePaused ? "RESUME" : "PAUSE");
+
+                        // Handle music switching
+                        if (gamePaused) {
+                            backgroundMusic.pause();
+                            pauseMusic.play();
+                        } else {
+                            pauseMusic.stop();
+                            backgroundMusic.play();
+                        }
+                    }
+                }
+            }
+            else if (event.type == Event::MouseMoved) {
+                sf::Vector2f mousePos = app.mapPixelToCoords(
+                    sf::Vector2i(event.mouseMove.x, event.mouseMove.y));
+
+                pauseButtonHovered = pauseButton.getGlobalBounds().contains(mousePos);
+                pauseButton.setFillColor(pauseButtonHovered ?
+                    sf::Color(70, 70, 70, 200) : sf::Color(50, 50, 50, 200));
+            }
+
+            if (!gamePaused && event.type == Event::KeyPressed) {
                 if (event.key.code == Keyboard::Space && shootCooldown <= 0) {
                     auto b = std::make_unique<Bullet>();
                     b->settings(sBullet, playerPtr->x, playerPtr->y, playerPtr->angle, 10);
@@ -107,7 +193,6 @@ int main() {
                     shootCooldown = shootCooldownTime;
                     shootSound.play();
                 }
-                // Homing bullet
                 else if (event.key.code == Keyboard::Enter && homingShootCooldown <= 0) {
                     auto b = std::make_unique<HomingBullet>();
                     b->settings(sHomingBullet, playerPtr->x, playerPtr->y, playerPtr->angle, 10);
@@ -118,135 +203,132 @@ int main() {
             }
         }
 
-        // Player controls
-        if (Keyboard::isKeyPressed(Keyboard::D)) playerPtr->angle += 3;
-        if (Keyboard::isKeyPressed(Keyboard::A)) playerPtr->angle -= 3;
-        playerPtr->thrust = Keyboard::isKeyPressed(Keyboard::W);
+        // Game logic (only when not paused)
+        if (!gamePaused) {
+            // Player controls
+            if (Keyboard::isKeyPressed(Keyboard::D)) playerPtr->angle += 3;
+            if (Keyboard::isKeyPressed(Keyboard::A)) playerPtr->angle -= 3;
+            playerPtr->thrust = Keyboard::isKeyPressed(Keyboard::W);
 
-        // Collision detection
-        for (auto itA = entities.begin(); itA != entities.end(); ++itA) {
-            for (auto itB = std::next(itA); itB != entities.end(); ++itB) {
-                Entity* a = itA->get();
-                Entity* b = itB->get();
+            // Collision detection
+            for (auto itA = entities.begin(); itA != entities.end(); ++itA) {
+                for (auto itB = std::next(itA); itB != entities.end(); ++itB) {
+                    Entity* a = itA->get();
+                    Entity* b = itB->get();
 
-                // Regular bullet collision
-                if ((a->name == "asteroid" && b->name == "bullet") ||
-                    (b->name == "asteroid" && a->name == "bullet")) {
+                    if ((a->name == "asteroid" && b->name == "bullet") ||
+                        (b->name == "asteroid" && a->name == "bullet")) {
 
-                    Entity* asteroid = (a->name == "asteroid") ? a : b;
-                    Entity* bullet = (a->name == "bullet") ? a : b;
+                        Entity* asteroid = (a->name == "asteroid") ? a : b;
+                        Entity* bullet = (a->name == "bullet") ? a : b;
 
-                    if (isCollide(asteroid, bullet)) {
-                        asteroid->life = false;
-                        bullet->life = false;
-                        asteroidsShotDirectly++;
+                        if (isCollide(asteroid, bullet)) {
+                            asteroid->life = false;
+                            bullet->life = false;
+                            asteroidsShotDirectly++;
 
-                        auto explosion = std::make_unique<Explosion>();
-                        explosion->settings(sExplosion, asteroid->x, asteroid->y);
-                        entities.push_back(std::move(explosion));
+                            auto explosion = std::make_unique<Explosion>();
+                            explosion->settings(sExplosion, asteroid->x, asteroid->y);
+                            entities.push_back(std::move(explosion));
 
-                        if (asteroid->R != 15) {
-                            for (int i = 0; i < 2; i++) {
-                                auto smallAsteroid = std::make_unique<Asteroid>();
-                                smallAsteroid->settings(sRock_small, asteroid->x, asteroid->y, rand() % 360, 15);
-                                entities.push_back(std::move(smallAsteroid));
+                            if (asteroid->R != 15) {
+                                for (int i = 0; i < 2; i++) {
+                                    auto smallAsteroid = std::make_unique<Asteroid>();
+                                    smallAsteroid->settings(sRock_small, asteroid->x, asteroid->y, rand() % 360, 15);
+                                    entities.push_back(std::move(smallAsteroid));
+                                }
                             }
                         }
                     }
-                }
-                // Homing bullet collision
-                else if ((a->name == "asteroid" && b->name == "homingbullet") ||
-                         (b->name == "asteroid" && a->name == "homingbullet")) {
+                    else if ((a->name == "asteroid" && b->name == "homingbullet") ||
+                             (b->name == "asteroid" && a->name == "homingbullet")) {
 
-                    Entity* asteroid = (a->name == "asteroid") ? a : b;
-                    Entity* bullet = (a->name == "homingbullet") ? a : b;
+                        Entity* asteroid = (a->name == "asteroid") ? a : b;
+                        Entity* bullet = (a->name == "homingbullet") ? a : b;
 
-                    if (isCollide(asteroid, bullet)) {
-                        asteroid->life = false;
-                        bullet->life = false;
-                        asteroidsShotDirectly++;
+                        if (isCollide(asteroid, bullet)) {
+                            asteroid->life = false;
+                            bullet->life = false;
+                            asteroidsShotDirectly++;
 
-                        // Create visual explosion
-                        auto explosion = std::make_unique<Explosion>();
-                        explosion->settings(sExplosion, asteroid->x, asteroid->y);
-                        entities.push_back(std::move(explosion));
+                            auto explosion = std::make_unique<Explosion>();
+                            explosion->settings(sExplosion, asteroid->x, asteroid->y);
+                            entities.push_back(std::move(explosion));
 
-                        // Create explosion effect
-                        auto explosionEffect = std::make_unique<ExplosionEffect>();
-                        explosionEffect->x = asteroid->x;
-                        explosionEffect->y = asteroid->y;
-                        entities.push_back(std::move(explosionEffect));
+                            auto explosionEffect = std::make_unique<ExplosionEffect>();
+                            explosionEffect->x = asteroid->x;
+                            explosionEffect->y = asteroid->y;
+                            entities.push_back(std::move(explosionEffect));
 
-                        if (asteroid->R != 15) {
-                            for (int i = 0; i < 2; i++) {
-                                auto smallAsteroid = std::make_unique<Asteroid>();
-                                smallAsteroid->settings(sRock_small, asteroid->x, asteroid->y, rand() % 360, 15);
-                                entities.push_back(std::move(smallAsteroid));
+                            if (asteroid->R != 15) {
+                                for (int i = 0; i < 2; i++) {
+                                    auto smallAsteroid = std::make_unique<Asteroid>();
+                                    smallAsteroid->settings(sRock_small, asteroid->x, asteroid->y, rand() % 360, 15);
+                                    entities.push_back(std::move(smallAsteroid));
+                                }
                             }
                         }
                     }
-                }
-                // Player collision
-                else if ((a->name == "player" && b->name == "asteroid") ||
-                         (a->name == "asteroid" && b->name == "player")) {
+                    else if ((a->name == "player" && b->name == "asteroid") ||
+                             (a->name == "asteroid" && b->name == "player")) {
 
-                    Entity* player = (a->name == "player") ? a : b;
-                    Entity* asteroid = (a->name == "asteroid") ? a : b;
+                        Entity* player = (a->name == "player") ? a : b;
+                        Entity* asteroid = (a->name == "asteroid") ? a : b;
 
-                    if (isCollide(player, asteroid)) {
-                        asteroid->life = false;
+                        if (isCollide(player, asteroid)) {
+                            asteroid->life = false;
 
-                        int totalDestroyed = asteroidsShotDirectly + asteroidsDestroyedInExplosions;
-                        if (totalDestroyed > maxAsteroidsDestroyed) {
-                            maxAsteroidsDestroyed = totalDestroyed;
+                            int totalDestroyed = asteroidsShotDirectly + asteroidsDestroyedInExplosions;
+                            if (totalDestroyed > maxAsteroidsDestroyed) {
+                                maxAsteroidsDestroyed = totalDestroyed;
+                            }
+
+                            asteroidsShotDirectly = 0;
+                            asteroidsDestroyedInExplosions = 0;
+
+                            auto explosion = std::make_unique<Explosion>();
+                            explosion->settings(sExplosion_ship, player->x, player->y);
+                            entities.push_back(std::move(explosion));
+
+                            player->settings(sPlayer, W/2, H/2, 0, 20);
+                            player->dx = 0;
+                            player->dy = 0;
                         }
-
-                        std::cout << "--- Ship Destroyed! ---\n";
-                        std::cout << "Asteroids shot directly: " << asteroidsShotDirectly << "\n";
-                        std::cout << "Asteroids destroyed in explosions: " << asteroidsDestroyedInExplosions << "\n";
-                        std::cout << "Total this life: " << totalDestroyed << "\n";
-                        std::cout << "Record: " << maxAsteroidsDestroyed << "\n\n";
-
-                        asteroidsShotDirectly = 0;
-                        asteroidsDestroyedInExplosions = 0;
-
-                        auto explosion = std::make_unique<Explosion>();
-                        explosion->settings(sExplosion_ship, player->x, player->y);
-                        entities.push_back(std::move(explosion));
-
-                        player->settings(sPlayer, W/2, H/2, 0, 20);
-                        player->dx = 0;
-                        player->dy = 0;
                     }
                 }
             }
-        }
 
-        // Update animations and clean up
-        playerPtr->anim = playerPtr->thrust ? sPlayer_go : sPlayer;
-        entities.remove_if([](const std::unique_ptr<Entity>& e) {
-            if (e->name == "explosionEffect" && !e->life) {
-                asteroidsDestroyedInExplosions += static_cast<ExplosionEffect*>(e.get())->damageDealt;
+            // Update animations and clean up
+            playerPtr->anim = playerPtr->thrust ? sPlayer_go : sPlayer;
+            entities.remove_if([](const std::unique_ptr<Entity>& e) {
+                if (e->name == "explosionEffect" && !e->life) {
+                    asteroidsDestroyedInExplosions += static_cast<ExplosionEffect*>(e.get())->damageDealt;
+                }
+                return (e->name == "explosion" && e->anim.isEnd()) ||
+                       (e->name == "explosionEffect" && !e->life) ||
+                       !e->life;
+            });
+
+            // Spawn new asteroids
+            if (rand() % 150 == 0) {
+                auto a = std::make_unique<Asteroid>();
+                a->settings(sRock, 0, rand() % H, rand() % 360, 25);
+                entities.push_back(std::move(a));
             }
-            return (e->name == "explosion" && e->anim.isEnd()) ||
-                   (e->name == "explosionEffect" && !e->life) ||
-                   !e->life;
-        });
 
-        // Spawn new asteroids
-        if (rand() % 150 == 0) {
-            auto a = std::make_unique<Asteroid>();
-            a->settings(sRock, 0, rand() % H, rand() % 360, 25);
-            entities.push_back(std::move(a));
-        }
-
-        // Update all entities
-        for (auto& e : entities) {
-            e->update();
-            if (e->name != "explosionEffect") {
-                e->anim.update();
+            // Update all entities
+            for (auto& e : entities) {
+                e->update();
+                if (e->name != "explosionEffect") {
+                    e->anim.update();
+                }
             }
         }
+
+        // Update score display
+        int currentScore = asteroidsShotDirectly + asteroidsDestroyedInExplosions;
+        scoreText.setString("Current: " + std::to_string(currentScore));
+        recordText.setString("Record: " + std::to_string(maxAsteroidsDestroyed));
 
         // Draw everything
         app.clear();
@@ -254,6 +336,27 @@ int main() {
         for (auto& e : entities) {
             e->draw(app);
         }
+
+        // Draw UI elements
+        app.draw(scoreText);
+        app.draw(recordText);
+        app.draw(pauseButton);
+        app.draw(pauseText);
+
+        // Draw pause overlay if game is paused
+        if (gamePaused) {
+            sf::RectangleShape overlay(sf::Vector2f(W, H));
+            overlay.setFillColor(sf::Color(0, 0, 0, 150));
+            app.draw(overlay);
+
+            if (font.getInfo().family != "") {
+                sf::Text pausedText("GAME PAUSED", font, 50);
+                pausedText.setPosition(W/2 - pausedText.getLocalBounds().width/2, H/2 - 50);
+                pausedText.setFillColor(sf::Color::White);
+                app.draw(pausedText);
+            }
+        }
+
         app.display();
     }
 
