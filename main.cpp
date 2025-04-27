@@ -66,13 +66,13 @@ int main() {
     }
 
     // Setup sound and brightness buttons (only visible when paused)
-    sf::RectangleShape soundButton(sf::Vector2f(150, 40));
+    sf::RectangleShape soundButton(sf::Vector2f(130, 40));
     soundButton.setPosition(W/2 - 160, H/2 + 50);
     soundButton.setFillColor(sf::Color(50, 50, 50, 200));
     soundButton.setOutlineThickness(2);
     soundButton.setOutlineColor(sf::Color::White);
 
-    sf::RectangleShape brightnessButton(sf::Vector2f(150, 40));
+    sf::RectangleShape brightnessButton(sf::Vector2f(200, 40));
     brightnessButton.setPosition(W/2 + 10, H/2 + 50);
     brightnessButton.setFillColor(sf::Color(50, 50, 50, 200));
     brightnessButton.setOutlineThickness(2);
