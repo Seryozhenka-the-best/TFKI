@@ -10,37 +10,40 @@
 #include <limits>
 #include <memory>
 
-using namespace sf;
-
+// Game constants
 const int W = 1200;
 const int H = 800;
 const float DEGTORAD = 0.017453f;
-
 const int BOSS_TRIGGER_SCORE = 25;
-const int BOSS_HITS_TO_DEFEAT = 15;
+const int MAX_BOSS_ASTEROIDS = 3;
+const int INITIAL_ASTEROIDS = 15;
 
-// Перенес глобальные переменные в main.cpp (extern для доступа)
+// Damage constants
+const int REGULAR_BULLET_DAMAGE = 1;
+const int HOMING_BULLET_DAMAGE = 5;
+const int BOSS_MAX_HEALTH = 15;
+
+// Global game state
+extern std::list<std::unique_ptr<class Entity>> entities;
+extern int asteroidsShotDirectly;
+extern int asteroidsDestroyedInExplosions;
+extern int maxAsteroidsDestroyed;
+extern int activeBossCount;
 extern bool bossSpawned;
-extern int bossHitsTaken;
-
-class Entity;
-extern std::list<std::unique_ptr<Entity>> entities;
 
 class Animation {
 public:
     float Frame, speed;
-    Sprite sprite;
-    std::vector<IntRect> frames;
+    sf::Sprite sprite;
+    std::vector<sf::IntRect> frames;
 
     Animation() = default;
 
-    Animation(Texture& t, int x, int y, int w, int h, int count, float Speed) {
+    Animation(sf::Texture& t, int x, int y, int w, int h, int count, float Speed) {
         Frame = 0;
         speed = Speed;
-
         for (int i = 0; i < count; i++)
-            frames.push_back(IntRect(x + i * w, y, w, h));
-
+            frames.push_back(sf::IntRect(x + i * w, y, w, h));
         sprite.setTexture(t);
         sprite.setOrigin(w / 2, h / 2);
         sprite.setTextureRect(frames[0]);
@@ -77,7 +80,7 @@ public:
 
     virtual void update() = 0;
 
-    virtual void draw(RenderWindow& app) {
+    virtual void draw(sf::RenderWindow& app) {
         anim.sprite.setPosition(x, y);
         anim.sprite.setRotation(angle + 90);
         app.draw(anim.sprite);
@@ -88,26 +91,46 @@ public:
 
 class Explosion : public Entity {
 public:
-    Explosion() {
-        name = "explosion";
+    Explosion() { name = "explosion"; }
+    void update() override {
+        if (anim.isEnd()) life = false;
     }
-
-    void update() override {}
 };
 
 class ExplosionEffect : public Entity {
 public:
-    float radius;
-    float currentSize;
-    float growthRate;
-    int damageDealt;
+    float radius = 100;
+    float currentSize = 0;
+    float growthRate = 150;
+    int damageDealt = 0;
 
-    ExplosionEffect() : radius(100), currentSize(0), growthRate(150), damageDealt(0) {
-        name = "explosionEffect";
+    ExplosionEffect() { name = "explosionEffect"; }
+
+    void update() override {
+        if (currentSize < radius) {
+            currentSize += growthRate * 0.016f;
+            for (auto& e : entities) {
+                if (e->name == "asteroid" && e->life) {
+                    float dist = sqrt((e->x - x) * (e->x - x) + (e->y - y) * (e->y - y));
+                    if (dist < currentSize + e->R) {
+                        e->life = false;
+                        damageDealt++;
+                    }
+                }
+            }
+        } else {
+            life = false;
+        }
     }
 
-    void update() override;
-    void draw(RenderWindow& app) override;
+    void draw(sf::RenderWindow& app) override {
+        sf::CircleShape circle(currentSize);
+        circle.setPosition(x - currentSize, y - currentSize);
+        circle.setFillColor(sf::Color(255, 50, 50, 100));
+        circle.setOutlineColor(sf::Color::Red);
+        circle.setOutlineThickness(2);
+        app.draw(circle);
+    }
 };
 
 class Asteroid : public Entity {
@@ -118,52 +141,121 @@ public:
         name = "asteroid";
     }
 
-    void update() override;
+    void update() override {
+        x += dx;
+        y += dy;
+        if (x > W) x = 0; if (x < 0) x = W;
+        if (y > H) y = 0; if (y < 0) y = H;
+    }
+};
+
+class BossAsteroid : public Entity {
+public:
+    int health = BOSS_MAX_HEALTH;
+
+    BossAsteroid() {
+        name = "boss";
+        R = 80;
+        dx = (rand() % 5 - 2) * 0.5f;
+        dy = (rand() % 5 - 2) * 0.5f;
+    }
+
+    void update() override {
+        x += dx * 0.3f;
+        y += dy * 0.3f;
+        if (x > W) x = 0; if (x < 0) x = W;
+        if (y > H) y = 0; if (y < 0) y = H;
+    }
 };
 
 class Bullet : public Entity {
 public:
+    int damage = REGULAR_BULLET_DAMAGE;
+
     Bullet() {
         name = "bullet";
     }
 
-    void update() override;
+    void update() override {
+        dx = cos(angle * DEGTORAD) * 6;
+        dy = sin(angle * DEGTORAD) * 6;
+        x += dx;
+        y += dy;
+        if (x > W || x < 0 || y > H || y < 0) life = false;
+    }
 };
 
 class HomingBullet : public Entity {
 public:
     Entity* target = nullptr;
+    int damage = HOMING_BULLET_DAMAGE;
 
     HomingBullet() {
         name = "homingbullet";
     }
 
-    void update() override;
+    void update() override {
+        // Find closest target (asteroid or boss)
+        float minDist = std::numeric_limits<float>::max();
+        target = nullptr;
+
+        for (auto& e : entities) {
+            if ((e->name == "asteroid" || e->name == "boss") && e->life) {
+                float dist = (e->x - x) * (e->x - x) + (e->y - y) * (e->y - y);
+                if (dist < minDist) {
+                    minDist = dist;
+                    target = e.get();
+                }
+            }
+        }
+
+        // If target found, adjust angle
+        if (target && target->life) {
+            float targetAngle = atan2(target->y - y, target->x - x) / DEGTORAD;
+            float angleDiff = targetAngle - angle;
+
+            // Normalize angle difference
+            while (angleDiff > 180) angleDiff -= 360;
+            while (angleDiff < -180) angleDiff += 360;
+
+            angle += angleDiff * 0.1f; // Gradual turn
+        }
+
+        dx = cos(angle * DEGTORAD) * 6;
+        dy = sin(angle * DEGTORAD) * 6;
+        x += dx;
+        y += dy;
+
+        if (x > W || x < 0 || y > H || y < 0) life = false;
+    }
 };
 
 class Player : public Entity {
 public:
-    bool thrust;
+    bool thrust = false;
 
-    Player() : thrust(false) {
-        name = "player";
+    Player() { name = "player"; }
+
+    void update() override {
+        if (thrust) {
+            dx += cos(angle * DEGTORAD) * 0.2;
+            dy += sin(angle * DEGTORAD) * 0.2;
+        } else {
+            dx *= 0.99;
+            dy *= 0.99;
+        }
+
+        float speed = sqrt(dx * dx + dy * dy);
+        if (speed > 5) {
+            dx *= 5 / speed;
+            dy *= 5 / speed;
+        }
+
+        x += dx;
+        y += dy;
+        if (x > W) x = 0; if (x < 0) x = W;
+        if (y > H) y = 0; if (y < 0) y = H;
     }
-
-    void update() override;
 };
 
-class BossAsteroid : public Entity {
-public:
-    BossAsteroid() {
-        name = "boss";
-        R = 190;
-        dx = 1.5f;
-        dy = 1.5f;
-    }
-
-    void update() override;
-};
-
-bool isCollide(const Entity* a, const Entity* b);
-
-#endif
+#endif // ASTEROIDS_HPP
