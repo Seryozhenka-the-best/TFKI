@@ -1,8 +1,5 @@
 #include "Asteroids.h"
 #include <SFML/Audio.hpp>
-#include <SFML/Graphics/Text.hpp>
-#include <SFML/Graphics/Font.hpp>
-#include <SFML/Graphics/RectangleShape.hpp>
 #include <iostream>
 #include <sstream>
 
@@ -17,6 +14,40 @@ int asteroidsShotDirectly = 0;
 int asteroidsDestroyedInExplosions = 0;
 int maxAsteroidsDestroyed = 0;
 int activeBossCount = 0;
+GameState gameState = GameState::MAIN_MENU;
+
+// Audio settings
+bool soundEnabled = true;
+float volume = 70.0f;
+sf::Music backgroundMusic, pauseMusic;
+sf::SoundBuffer shootBuffer;
+sf::Sound shootSound;
+
+// Player reference
+Player* playerPtr = nullptr;
+
+// Menu elements
+Button* startButton = nullptr;
+Button* exitButton = nullptr;
+
+// Pause menu elements
+sf::RectangleShape pauseResumeButton;
+sf::Text pauseResumeText;
+sf::RectangleShape pauseSoundButton;
+sf::Text pauseSoundText;
+sf::RectangleShape pauseBrightnessButton;
+sf::Text pauseBrightnessText;
+sf::RectangleShape pauseVolumeBackground;
+sf::RectangleShape pauseVolumeSlider;
+sf::Text pauseVolumeText;
+
+// Slider control variables
+bool pauseButtonHovered = false;
+bool volumeSliderHovered = false;
+bool volumeSliderDragging = false;
+float volumeSliderMinX = 0;
+float volumeSliderMaxX = 0;
+float brightness = 1.0f;
 
 bool isCollide(const Entity* a, const Entity* b) {
     return (b->x - a->x) * (b->x - a->x) +
@@ -43,24 +74,293 @@ void spawnBossAsteroid() {
 }
 
 void drawBossHealth(sf::RenderWindow& app, const BossAsteroid* boss, sf::Font& font) {
-    // Health text
-    sf::Text bossHealthText("BOSS HP: " + std::to_string(boss->health), font, 24);
+    sf::Text bossHealthText;
+    bossHealthText.setString("BOSS HP: " + std::to_string(boss->health));
+    bossHealthText.setFont(font);
+    bossHealthText.setCharacterSize(24);
     bossHealthText.setPosition(boss->x - 50, boss->y - 60);
     bossHealthText.setFillColor(sf::Color::Red);
     app.draw(bossHealthText);
 
-    // Health bar background
     sf::RectangleShape healthBarBack(sf::Vector2f(100, 10));
     healthBarBack.setPosition(boss->x - 50, boss->y - 40);
     healthBarBack.setFillColor(sf::Color(50, 50, 50));
     app.draw(healthBarBack);
 
-    // Health bar
     float healthPercentage = static_cast<float>(boss->health) / BOSS_MAX_HEALTH;
     sf::RectangleShape healthBar(sf::Vector2f(100 * healthPercentage, 10));
     healthBar.setPosition(boss->x - 50, boss->y - 40);
     healthBar.setFillColor(sf::Color::Red);
     app.draw(healthBar);
+}
+
+void updateVolumeSlider(float mouseX) {
+    // Calculate new slider position (clamped to bounds)
+    float newSliderX = mouseX - pauseVolumeSlider.getSize().x / 2;
+    newSliderX = std::max(volumeSliderMinX, std::min(newSliderX, volumeSliderMaxX));
+
+    // Update slider position
+    pauseVolumeSlider.setPosition(newSliderX, pauseVolumeSlider.getPosition().y);
+
+    // Calculate volume (0-100) based on slider position
+    volume = ((newSliderX - volumeSliderMinX) / (volumeSliderMaxX - volumeSliderMinX)) * 100.0f;
+    volume = std::max(0.f, std::min(100.f, volume));
+
+    // Update volume text
+    pauseVolumeText.setString("VOLUME: " + std::to_string(int(volume)) + "%");
+
+    // Update audio volumes
+    if (soundEnabled) {
+        shootSound.setVolume(volume);
+        backgroundMusic.setVolume(volume * 0.7f);
+        pauseMusic.setVolume(volume * 0.7f);
+    }
+}
+
+void initMenu(sf::Font& font) {
+    // Main menu buttons
+    startButton = new Button("START GAME", font, 30,
+                           sf::Vector2f(W/2 - 150, H/2 - 50),
+                           sf::Vector2f(300, 60));
+    startButton->setColors(
+        sf::Color(0, 100, 200, 220),
+        sf::Color(0, 150, 255, 220),
+        sf::Color(0, 70, 150, 220)
+    );
+
+    exitButton = new Button("EXIT", font, 30,
+                          sf::Vector2f(W/2 - 150, H/2 + 50),
+                          sf::Vector2f(300, 60));
+    exitButton->setColors(
+        sf::Color(200, 50, 50, 220),
+        sf::Color(255, 70, 70, 220),
+        sf::Color(150, 30, 30, 220)
+    );
+
+    // Initialize pause menu elements
+    pauseResumeButton.setSize(sf::Vector2f(300, 60));
+    pauseResumeButton.setPosition(W/2 - 150, H/2 - 100);
+    pauseResumeButton.setFillColor(sf::Color(70, 70, 70, 220));
+    pauseResumeButton.setOutlineThickness(2);
+    pauseResumeButton.setOutlineColor(sf::Color::White);
+
+    pauseResumeText.setString("RESUME");
+    pauseResumeText.setFont(font);
+    pauseResumeText.setCharacterSize(30);
+    pauseResumeText.setPosition(W/2 - pauseResumeText.getLocalBounds().width/2, H/2 - 90);
+    pauseResumeText.setFillColor(sf::Color::White);
+
+    pauseSoundButton.setSize(sf::Vector2f(300, 60));
+    pauseSoundButton.setPosition(W/2 - 150, H/2);
+    pauseSoundButton.setFillColor(sf::Color(70, 70, 70, 220));
+    pauseSoundButton.setOutlineThickness(2);
+    pauseSoundButton.setOutlineColor(sf::Color::White);
+
+    pauseSoundText.setString("SOUND: ON");
+    pauseSoundText.setFont(font);
+    pauseSoundText.setCharacterSize(30);
+    pauseSoundText.setPosition(W/2 - pauseSoundText.getLocalBounds().width/2, H/2 + 10);
+    pauseSoundText.setFillColor(sf::Color::White);
+
+    pauseBrightnessButton.setSize(sf::Vector2f(300, 60));
+    pauseBrightnessButton.setPosition(W/2 - 150, H/2 + 80);
+    pauseBrightnessButton.setFillColor(sf::Color(70, 70, 70, 220));
+    pauseBrightnessButton.setOutlineThickness(2);
+    pauseBrightnessButton.setOutlineColor(sf::Color::White);
+
+    pauseBrightnessText.setString("BRIGHTNESS: 100%");
+    pauseBrightnessText.setFont(font);
+    pauseBrightnessText.setCharacterSize(30);
+    pauseBrightnessText.setPosition(W/2 - pauseBrightnessText.getLocalBounds().width/2, H/2 + 90);
+    pauseBrightnessText.setFillColor(sf::Color::White);
+
+    // Volume slider setup
+    pauseVolumeBackground.setSize(sf::Vector2f(300, 20));
+    pauseVolumeBackground.setPosition(W/2 - 150, H/2 + 160);
+    pauseVolumeBackground.setFillColor(sf::Color(50, 50, 50));
+
+    pauseVolumeSlider.setSize(sf::Vector2f(20, 40));
+    pauseVolumeSlider.setPosition(W/2 - 150 + (volume/100.f * 300), H/2 + 150);
+    pauseVolumeSlider.setFillColor(sf::Color::White);
+
+    // Set min/max X positions for the slider
+    volumeSliderMinX = pauseVolumeBackground.getPosition().x;
+    volumeSliderMaxX = volumeSliderMinX + pauseVolumeBackground.getSize().x - pauseVolumeSlider.getSize().x;
+
+    pauseVolumeText.setString("VOLUME: " + std::to_string(int(volume)) + "%");
+    pauseVolumeText.setFont(font);
+    pauseVolumeText.setCharacterSize(24);
+    pauseVolumeText.setPosition(W/2 - pauseVolumeText.getLocalBounds().width/2, H/2 + 190);
+    pauseVolumeText.setFillColor(sf::Color::White);
+}
+
+void drawMenu(sf::RenderWindow& app, sf::Font& font) {
+    // Draw title
+    sf::Text title;
+    title.setString("ASTEROIDS");
+    title.setFont(font);
+    title.setCharacterSize(80);
+    title.setPosition(W/2 - title.getLocalBounds().width/2, H/4);
+    title.setFillColor(sf::Color::White);
+    title.setStyle(sf::Text::Bold);
+    app.draw(title);
+
+    // Draw version/subtitle
+    sf::Text version;
+    version.setString("Classic Arcade Game");
+    version.setFont(font);
+    version.setCharacterSize(24);
+    version.setPosition(W/2 - version.getLocalBounds().width/2, H/4 + 90);
+    version.setFillColor(sf::Color(200, 200, 200));
+    app.draw(version);
+
+    // Draw buttons
+    startButton->draw(app);
+    exitButton->draw(app);
+
+    // Draw controls info
+    sf::Text controls;
+    controls.setString("Controls: W/A/D to move, SPACE to shoot, ENTER for homing missiles");
+    controls.setFont(font);
+    controls.setCharacterSize(20);
+    controls.setPosition(W/2 - controls.getLocalBounds().width/2, H - 50);
+    controls.setFillColor(sf::Color(150, 150, 150));
+    app.draw(controls);
+}
+
+void handleMenuEvents(sf::RenderWindow& app, sf::Event& event) {
+    sf::Vector2f mousePos = app.mapPixelToCoords(
+        sf::Vector2i(event.mouseButton.x, event.mouseButton.y));
+
+    startButton->update(mousePos);
+    exitButton->update(mousePos);
+
+    if (event.type == sf::Event::MouseButtonPressed &&
+        event.mouseButton.button == sf::Mouse::Left) {
+        if (startButton->isClicked(mousePos, sf::Mouse::Left)) {
+            gameState = GameState::PLAYING;
+            // Reset game state
+            entities.clear();
+            spawnInitialAsteroids();
+            auto p = std::make_unique<Player>();
+            p->settings(sPlayer, W/2, H/2, 0, 20);
+            playerPtr = p.get();
+            entities.push_back(std::move(p));
+
+            // Start game music
+            if (soundEnabled) {
+                backgroundMusic.play();
+            }
+        }
+        else if (exitButton->isClicked(mousePos, sf::Mouse::Left)) {
+            app.close();
+        }
+    }
+}
+
+void resetGame() {
+    entities.clear();
+    asteroidsShotDirectly = 0;
+    asteroidsDestroyedInExplosions = 0;
+    activeBossCount = 0;
+    bossSpawned = false;
+    spawnInitialAsteroids();
+
+    auto p = std::make_unique<Player>();
+    p->settings(sPlayer, W/2, H/2, 0, 20);
+    playerPtr = p.get();
+    entities.push_back(std::move(p));
+}
+
+void drawPauseMenu(sf::RenderWindow& app) {
+    // Dark overlay
+    sf::RectangleShape overlay(sf::Vector2f(W, H));
+    overlay.setFillColor(sf::Color(0, 0, 0, 150));
+    app.draw(overlay);
+
+    // "GAME PAUSED" text
+    sf::Text pausedText;
+    pausedText.setString("GAME PAUSED");
+    pausedText.setFont(*pauseResumeText.getFont());
+    pausedText.setCharacterSize(50);
+    pausedText.setPosition(W/2 - pausedText.getLocalBounds().width/2, H/4);
+    pausedText.setFillColor(sf::Color::White);
+    app.draw(pausedText);
+
+    // Update button colors based on hover state
+    pauseResumeButton.setFillColor(pauseButtonHovered ?
+        sf::Color(90, 90, 90, 220) : sf::Color(70, 70, 70, 220));
+
+    // Draw volume slider with hover effect
+    pauseVolumeSlider.setFillColor(volumeSliderHovered || volumeSliderDragging ?
+        sf::Color(200, 200, 255) : sf::Color::White);
+
+    // Draw all pause menu elements
+    app.draw(pauseResumeButton);
+    app.draw(pauseResumeText);
+    app.draw(pauseSoundButton);
+    app.draw(pauseSoundText);
+    app.draw(pauseBrightnessButton);
+    app.draw(pauseBrightnessText);
+    app.draw(pauseVolumeBackground);
+    app.draw(pauseVolumeSlider);
+    app.draw(pauseVolumeText);
+}
+
+void handlePauseMenuEvents(sf::RenderWindow& app, sf::Event& event) {
+    sf::Vector2f mousePos = app.mapPixelToCoords(
+        sf::Vector2i(event.mouseButton.x, event.mouseButton.y));
+
+    // Update hover states
+    pauseButtonHovered = pauseResumeButton.getGlobalBounds().contains(mousePos);
+    volumeSliderHovered = pauseVolumeSlider.getGlobalBounds().contains(mousePos) ||
+                         pauseVolumeBackground.getGlobalBounds().contains(mousePos);
+
+    if (event.type == sf::Event::MouseButtonPressed) {
+        if (event.mouseButton.button == sf::Mouse::Left) {
+            // Resume button
+            if (pauseResumeButton.getGlobalBounds().contains(mousePos)) {
+                gameState = GameState::PLAYING;
+                pauseMusic.stop();
+                if (soundEnabled) backgroundMusic.play();
+            }
+            // Sound toggle
+            else if (pauseSoundButton.getGlobalBounds().contains(mousePos)) {
+                soundEnabled = !soundEnabled;
+                pauseSoundText.setString(soundEnabled ? "SOUND: ON" : "SOUND: OFF");
+                backgroundMusic.setVolume(soundEnabled ? volume * 0.7f : 0);
+                pauseMusic.setVolume(soundEnabled ? volume * 0.7f : 0);
+                shootSound.setVolume(soundEnabled ? volume : 0);
+            }
+            // Brightness adjustment
+            else if (pauseBrightnessButton.getGlobalBounds().contains(mousePos)) {
+                brightness = brightness >= 1.0f ? 0.5f : brightness + 0.1f;
+                if (brightness > 1.0f) brightness = 1.0f;
+                pauseBrightnessText.setString("BRIGHTNESS: " + std::to_string(int(brightness * 100)) + "%");
+            }
+            // Volume slider - check if clicked on slider or background
+            else if (volumeSliderHovered) {
+                volumeSliderDragging = true;
+                updateVolumeSlider(mousePos.x);
+            }
+        }
+    }
+    else if (event.type == sf::Event::MouseButtonReleased) {
+        if (event.mouseButton.button == sf::Mouse::Left) {
+            volumeSliderDragging = false;
+        }
+    }
+    else if (event.type == sf::Event::MouseMoved) {
+        if (volumeSliderDragging) {
+            updateVolumeSlider(mousePos.x);
+        }
+    }
+    // Allow ESC to unpause
+    else if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape) {
+        gameState = GameState::PLAYING;
+        pauseMusic.stop();
+        if (soundEnabled) backgroundMusic.play();
+    }
 }
 
 int main() {
@@ -95,14 +395,6 @@ int main() {
     sBossExplosion = sExplosion_ship;
     sBossExplosion.sprite.setScale(3.0f, 3.0f);
 
-    // Game state
-    bool gamePaused = false;
-    bool pauseButtonHovered = false;
-    float brightness = 1.0f;
-    bool soundEnabled = true;
-    float volume = 70.0f;
-    bool volumeSliderDragging = false;
-
     // Load font
     sf::Font font;
     if (!font.loadFromFile("Roboto-Bold.ttf")) {
@@ -110,80 +402,15 @@ int main() {
         font = sf::Font();
     }
 
-    // UI elements
-    sf::Text scoreText, recordText, pauseText, soundText, brightnessText, volumeText;
-    scoreText.setFont(font);
-    recordText.setFont(font);
-    pauseText.setFont(font);
-    soundText.setFont(font);
-    brightnessText.setFont(font);
-    volumeText.setFont(font);
+    // Initialize menus
+    initMenu(font);
 
-    scoreText.setCharacterSize(24);
-    recordText.setCharacterSize(24);
-    pauseText.setCharacterSize(20);
-    soundText.setCharacterSize(20);
-    brightnessText.setCharacterSize(20);
-    volumeText.setCharacterSize(20);
-
-    scoreText.setFillColor(sf::Color::White);
-    recordText.setFillColor(sf::Color::White);
-    pauseText.setFillColor(sf::Color::White);
-    soundText.setFillColor(sf::Color::White);
-    brightnessText.setFillColor(sf::Color::White);
-    volumeText.setFillColor(sf::Color::White);
-
-    scoreText.setPosition(20, 20);
-    recordText.setPosition(20, 50);
-    pauseText.setPosition(W - 110, 25);
-    soundText.setPosition(W/2 - 150, H/2 + 55);
-    brightnessText.setPosition(W/2 + 20, H/2 + 55);
-    volumeText.setPosition(W/2 - 150, H/2 + 105);
-
-    pauseText.setString("PAUSE");
-    soundText.setString(soundEnabled ? "SOUND: ON" : "SOUND: OFF");
-    brightnessText.setString("BRIGHTNESS: " + std::to_string(int(brightness * 100)) + "%");
-    volumeText.setString("VOLUME: " + std::to_string(int(volume)) + "%");
-
-    // Volume slider
-    sf::RectangleShape volumeSliderBackground(sf::Vector2f(200, 10));
-    volumeSliderBackground.setPosition(W/2 - 100, H/2 + 130);
-    volumeSliderBackground.setFillColor(sf::Color(100, 100, 100));
-
-    sf::RectangleShape volumeSlider(sf::Vector2f(10, 20));
-    volumeSlider.setPosition(W/2 - 100 + volume * 2, H/2 + 125);
-    volumeSlider.setFillColor(sf::Color::White);
-
-    // Buttons
-    sf::RectangleShape pauseButton(sf::Vector2f(120, 50));
-    pauseButton.setPosition(W - 130, 20);
-    pauseButton.setFillColor(sf::Color(70, 70, 70, 220));
-    pauseButton.setOutlineThickness(2);
-    pauseButton.setOutlineColor(sf::Color::White);
-
-    sf::RectangleShape soundButton(sf::Vector2f(130, 40));
-    soundButton.setPosition(W/2 - 160, H/2 + 50);
-    soundButton.setFillColor(sf::Color(50, 50, 50, 200));
-    soundButton.setOutlineThickness(2);
-    soundButton.setOutlineColor(sf::Color::White);
-
-    sf::RectangleShape brightnessButton(sf::Vector2f(200, 40));
-    brightnessButton.setPosition(W/2 + 10, H/2 + 50);
-    brightnessButton.setFillColor(sf::Color(50, 50, 50, 200));
-    brightnessButton.setOutlineThickness(2);
-    brightnessButton.setOutlineColor(sf::Color::White);
-
-    // Audio
-    sf::Music backgroundMusic, pauseMusic;
-    sf::SoundBuffer shootBuffer;
-    sf::Sound shootSound;
-
+    // Audio initialization
     if (!backgroundMusic.openFromFile("doom.ogg")) {
         std::cerr << "Failed to load background music!" << std::endl;
     } else {
         backgroundMusic.setLoop(true);
         backgroundMusic.setVolume(volume * 0.7f);
-        backgroundMusic.play();
     }
 
     if (!pauseMusic.openFromFile("pause.ogg")) {
@@ -200,14 +427,6 @@ int main() {
         shootSound.setVolume(volume);
     }
 
-    // Initial entities
-    spawnInitialAsteroids();
-
-    auto p = std::make_unique<Player>();
-    p->settings(sPlayer, W/2, H/2, 0, 20);
-    Player* playerPtr = p.get();
-    entities.push_back(std::move(p));
-
     // Game timing
     float shootCooldown = 0.0f;
     const float shootCooldownTime = 0.15f;
@@ -219,6 +438,7 @@ int main() {
     // Main game loop
     while (app.isOpen()) {
         float dt = clock.restart().asSeconds();
+        int currentScore = 0;
 
         // Event handling
         sf::Event event;
@@ -227,386 +447,390 @@ int main() {
                 app.close();
             }
 
-            // Pause button handling
-            if (event.type == sf::Event::MouseButtonPressed) {
-                sf::Vector2f mousePos = app.mapPixelToCoords(
-                    sf::Vector2i(event.mouseButton.x, event.mouseButton.y));
+            switch (gameState) {
+                case GameState::MAIN_MENU:
+                    handleMenuEvents(app, event);
+                    break;
 
-                if (pauseButton.getGlobalBounds().contains(mousePos)) {
-                    gamePaused = !gamePaused;
-                    pauseText.setString(gamePaused ? "RESUME" : "PAUSE");
-
-                    if (gamePaused) {
+                case GameState::PLAYING:
+                    if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape) {
+                        gameState = GameState::PAUSED;
                         backgroundMusic.pause();
                         if (soundEnabled) pauseMusic.play();
-                    } else {
-                        pauseMusic.stop();
-                        if (soundEnabled) backgroundMusic.play();
+                        continue;
                     }
-                    continue;
-                }
 
-                if (gamePaused) {
-                    if (volumeSlider.getGlobalBounds().contains(mousePos)) {
-                        volumeSliderDragging = true;
+                    // Pause button handling
+                    if (event.type == sf::Event::MouseButtonPressed &&
+                        event.mouseButton.button == sf::Mouse::Left) {
+                        sf::Vector2f mousePos = app.mapPixelToCoords(
+                            sf::Vector2i(event.mouseButton.x, event.mouseButton.y));
+
+                        // Check if pause button was clicked
+                        sf::FloatRect pauseBtnBounds(W - 140, 20, 120, 50);
+                        if (pauseBtnBounds.contains(mousePos)) {
+                            gameState = GameState::PAUSED;
+                            backgroundMusic.pause();
+                            if (soundEnabled) pauseMusic.play();
+                            continue;
+                        }
                     }
-                    else if (soundButton.getGlobalBounds().contains(mousePos)) {
-                        soundEnabled = !soundEnabled;
-                        soundText.setString(soundEnabled ? "SOUND: ON" : "SOUND: OFF");
-                        backgroundMusic.setVolume(soundEnabled ? volume * 0.7f : 0);
-                        pauseMusic.setVolume(soundEnabled ? volume * 0.7f : 0);
-                        shootSound.setVolume(soundEnabled ? volume : 0);
-                        if (gamePaused && soundEnabled) pauseMusic.play();
+
+                    if (gameState == GameState::PLAYING) {
+                        if (event.type == sf::Event::KeyPressed) {
+                            if (event.key.code == sf::Keyboard::Enter && homingShootCooldown <= 0) {
+                                auto b = std::make_unique<HomingBullet>();
+                                b->settings(sHomingBullet, playerPtr->x, playerPtr->y, playerPtr->angle, 10);
+                                entities.push_back(std::move(b));
+                                homingShootCooldown = homingShootCooldownTime;
+                                if (soundEnabled) shootSound.play();
+                            }
+                        }
                     }
-                    else if (brightnessButton.getGlobalBounds().contains(mousePos)) {
-                        brightness = brightness >= 1.0f ? 0.5f : brightness + 0.1f;
-                        if (brightness > 1.0f) brightness = 1.0f;
-                        brightnessText.setString("BRIGHTNESS: " + std::to_string(int(brightness * 100)) + "%");
-                    }
-                }
-            }
-            else if (event.type == sf::Event::MouseButtonReleased) {
-                volumeSliderDragging = false;
-            }
-            else if (event.type == sf::Event::MouseMoved) {
-                sf::Vector2f mousePos = app.mapPixelToCoords(
-                    sf::Vector2i(event.mouseMove.x, event.mouseMove.y));
+                    break;
 
-                pauseButtonHovered = pauseButton.getGlobalBounds().contains(mousePos);
-                pauseButton.setFillColor(pauseButtonHovered ?
-                    sf::Color(90, 90, 90, 220) : sf::Color(70, 70, 70, 220));
-
-                if (volumeSliderDragging) {
-                    float newX = mousePos.x;
-                    newX = std::max(W/2 - 100.f, std::min(newX, W/2 + 100.f));
-                    volumeSlider.setPosition(newX, H/2 + 125);
-                    volume = (newX - (W/2 - 100)) / 2.0f;
-                    volume = std::max(0.f, std::min(100.f, volume));
-                    volumeText.setString("VOLUME: " + std::to_string(int(volume)) + "%");
-
-                    if (soundEnabled) {
-                        shootSound.setVolume(volume);
-                        backgroundMusic.setVolume(volume * 0.7f);
-                        pauseMusic.setVolume(volume * 0.7f);
-                    }
-                }
-
-                if (gamePaused) {
-                    bool soundHovered = soundButton.getGlobalBounds().contains(mousePos);
-                    soundButton.setFillColor(soundHovered ?
-                        sf::Color(70, 70, 70, 200) : sf::Color(50, 50, 50, 200));
-
-                    bool brightnessHovered = brightnessButton.getGlobalBounds().contains(mousePos);
-                    brightnessButton.setFillColor(brightnessHovered ?
-                        sf::Color(70, 70, 70, 200) : sf::Color(50, 50, 50, 200));
-                }
-            }
-
-            if (event.type == sf::Event::KeyPressed && !gamePaused) {
-                if (event.key.code == sf::Keyboard::Enter && homingShootCooldown <= 0) {
-                    auto b = std::make_unique<HomingBullet>();
-                    b->settings(sHomingBullet, playerPtr->x, playerPtr->y, playerPtr->angle, 10);
-                    entities.push_back(std::move(b));
-                    homingShootCooldown = homingShootCooldownTime;
-                    if (soundEnabled) shootSound.play();
-                }
+                case GameState::PAUSED:
+                    handlePauseMenuEvents(app, event);
+                    break;
             }
         }
 
-        if (!gamePaused) {
-            // Update cooldowns
-            shootCooldown -= dt;
-            homingShootCooldown -= dt;
+        // Update based on game state
+        switch (gameState) {
+            case GameState::MAIN_MENU:
+                // Menu doesn't need updates beyond what's handled in events
+                break;
 
-            // Player controls
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::D)) playerPtr->angle += 3;
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::A)) playerPtr->angle -= 3;
-            playerPtr->thrust = sf::Keyboard::isKeyPressed(sf::Keyboard::W);
+            case GameState::PLAYING: {
+                // Update cooldowns
+                shootCooldown -= dt;
+                homingShootCooldown -= dt;
 
-            // Continuous firing when space is held down
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Space) && shootCooldown <= 0) {
-                auto b = std::make_unique<Bullet>();
-                b->settings(sBullet, playerPtr->x, playerPtr->y, playerPtr->angle, 10);
-                entities.push_back(std::move(b));
-                shootCooldown = shootCooldownTime;
-                if (soundEnabled) shootSound.play();
-            }
+                // Player controls
+                if (playerPtr) {
+                    if (sf::Keyboard::isKeyPressed(sf::Keyboard::D)) playerPtr->angle += 3;
+                    if (sf::Keyboard::isKeyPressed(sf::Keyboard::A)) playerPtr->angle -= 3;
+                    playerPtr->thrust = sf::Keyboard::isKeyPressed(sf::Keyboard::W);
 
-            // Collision detection
-            for (auto itA = entities.begin(); itA != entities.end(); ++itA) {
-                for (auto itB = std::next(itA); itB != entities.end(); ++itB) {
-                    Entity* a = itA->get();
-                    Entity* b = itB->get();
-
-                    // Player vs Asteroid/Boss collision
-                    if ((a->name == "player" && (b->name == "asteroid" || b->name == "boss")) ||
-                        (b->name == "player" && (a->name == "asteroid" || a->name == "boss"))) {
-
-                        Entity* player = (a->name == "player") ? a : b;
-                        Entity* asteroid = (a->name == "asteroid" || a->name == "boss") ? a : b;
-
-                        if (isCollide(player, asteroid)) {
-                            asteroid->life = false;
-                            if (asteroid->name == "boss") {
-                                static_cast<BossAsteroid*>(asteroid)->spawnChildren = false;
-                                activeBossCount--;
-                            }
-
-                            int totalDestroyed = asteroidsShotDirectly + asteroidsDestroyedInExplosions;
-                            maxAsteroidsDestroyed = std::max(maxAsteroidsDestroyed, totalDestroyed);
-
-                            // Reset only current score, keep max
-                            asteroidsShotDirectly = 0;
-                            asteroidsDestroyedInExplosions = 0;
-
-                            // Clear all asteroids and bullets
-                            entities.remove_if([](const std::unique_ptr<Entity>& e) {
-                                return e->name == "asteroid" || e->name == "bullet" ||
-                                       e->name == "homingbullet" || e->name == "boss";
-                            });
-                            activeBossCount = 0;
-
-                            // Respawn initial asteroids
-                            spawnInitialAsteroids();
-
-                            // Create explosion effect
-                            auto explosion = std::make_unique<Explosion>();
-                            if (asteroid->name == "boss") {
-                                explosion->settings(sBossExplosion, player->x, player->y);
-                            } else {
-                                explosion->settings(sExplosion_ship, player->x, player->y);
-                            }
-                            entities.push_back(std::move(explosion));
-
-                            // Reset player
-                            player->settings(sPlayer, W/2, H/2, 0, 20);
-                            player->dx = 0;
-                            player->dy = 0;
-                        }
+                    // Continuous firing when space is held down
+                    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Space) && shootCooldown <= 0) {
+                        auto b = std::make_unique<Bullet>();
+                        b->settings(sBullet, playerPtr->x, playerPtr->y, playerPtr->angle, 10);
+                        entities.push_back(std::move(b));
+                        shootCooldown = shootCooldownTime;
+                        if (soundEnabled) shootSound.play();
                     }
-                    // Bullet vs Boss collision
-                    else if ((a->name == "boss" && b->name == "bullet") ||
-                            (b->name == "boss" && a->name == "bullet")) {
+                }
 
-                        Entity* boss = (a->name == "boss") ? a : b;
-                        Entity* bullet = (a->name == "bullet") ? a : b;
+                // Collision detection
+                for (auto itA = entities.begin(); itA != entities.end(); ++itA) {
+                    for (auto itB = std::next(itA); itB != entities.end(); ++itB) {
+                        Entity* a = itA->get();
+                        Entity* b = itB->get();
 
-                        if (isCollide(boss, bullet)) {
-                            bullet->life = false;
-                            BossAsteroid* bossObj = static_cast<BossAsteroid*>(boss);
-                            bossObj->health -= static_cast<Bullet*>(bullet)->damage;
+                        if ((a->name == "player" && (b->name == "asteroid" || b->name == "boss")) ||
+                            (b->name == "player" && (a->name == "asteroid" || a->name == "boss"))) {
 
-                            auto hitEffect = std::make_unique<Explosion>();
-                            hitEffect->settings(sExplosion_ship, bullet->x, bullet->y);
-                            entities.push_back(std::move(hitEffect));
+                            Entity* player = (a->name == "player") ? a : b;
+                            Entity* asteroid = (a->name == "asteroid" || a->name == "boss") ? a : b;
 
-                            if (bossObj->health <= 0) {
-                                boss->life = false;
-                                activeBossCount--;
+                            if (isCollide(player, asteroid)) {
+                                asteroid->life = false;
+                                if (asteroid->name == "boss") {
+                                    static_cast<BossAsteroid*>(asteroid)->spawnChildren = false;
+                                    activeBossCount--;
+                                }
+
+                                int totalDestroyed = asteroidsShotDirectly + asteroidsDestroyedInExplosions;
+                                maxAsteroidsDestroyed = std::max(maxAsteroidsDestroyed, totalDestroyed);
+
+                                // Reset only current score, keep max
+                                asteroidsShotDirectly = 0;
+                                asteroidsDestroyedInExplosions = 0;
+
+                                // Clear all asteroids and bullets
+                                entities.remove_if([](const std::unique_ptr<Entity>& e) {
+                                    return e->name == "asteroid" || e->name == "bullet" ||
+                                           e->name == "homingbullet" || e->name == "boss";
+                                });
+                                activeBossCount = 0;
+
+                                // Respawn initial asteroids
+                                spawnInitialAsteroids();
+
+                                // Create explosion effect
                                 auto explosion = std::make_unique<Explosion>();
-                                explosion->settings(sBossExplosion, boss->x, boss->y);
+                                if (asteroid->name == "boss") {
+                                    explosion->settings(sBossExplosion, player->x, player->y);
+                                } else {
+                                    explosion->settings(sExplosion_ship, player->x, player->y);
+                                }
                                 entities.push_back(std::move(explosion));
 
-                                // Spawn 4 regular asteroids when boss is destroyed
-                                if (bossObj->spawnChildren) {
-                                    for (int i = 0; i < 4; i++) {
-                                        auto a = std::make_unique<Asteroid>();
-                                        a->settings(sRock_small, boss->x, boss->y, rand() % 360, 15);
-                                        // Inherit some boss velocity
-                                        a->dx = boss->dx * 0.5f + (rand() % 4 - 2);
-                                        a->dy = boss->dy * 0.5f + (rand() % 4 - 2);
-                                        entities.push_back(std::move(a));
-                                    }
-                                }
-
-                                bossSpawned = activeBossCount > 0;
-                                asteroidsShotDirectly += 10;
+                                // Reset player
+                                player->settings(sPlayer, W/2, H/2, 0, 20);
+                                player->dx = 0;
+                                player->dy = 0;
                             }
                         }
-                    }
-                    // HomingBullet vs Boss collision
-                    else if ((a->name == "boss" && b->name == "homingbullet") ||
-                            (b->name == "boss" && a->name == "homingbullet")) {
+                        // Bullet vs Boss collision
+                        else if ((a->name == "boss" && b->name == "bullet") ||
+                                (b->name == "boss" && a->name == "bullet")) {
 
-                        Entity* boss = (a->name == "boss") ? a : b;
-                        Entity* bullet = (a->name == "homingbullet") ? a : b;
+                            Entity* boss = (a->name == "boss") ? a : b;
+                            Entity* bullet = (a->name == "bullet") ? a : b;
 
-                        if (isCollide(boss, bullet)) {
-                            bullet->life = false;
-                            BossAsteroid* bossObj = static_cast<BossAsteroid*>(boss);
-                            bossObj->health -= static_cast<HomingBullet*>(bullet)->damage;
+                            if (isCollide(boss, bullet)) {
+                                bullet->life = false;
+                                BossAsteroid* bossObj = static_cast<BossAsteroid*>(boss);
+                                bossObj->health -= static_cast<Bullet*>(bullet)->damage;
 
-                            auto hitEffect = std::make_unique<Explosion>();
-                            hitEffect->settings(sExplosion, bullet->x, bullet->y);
-                            entities.push_back(std::move(hitEffect));
+                                auto hitEffect = std::make_unique<Explosion>();
+                                hitEffect->settings(sExplosion_ship, bullet->x, bullet->y);
+                                entities.push_back(std::move(hitEffect));
 
-                            if (bossObj->health <= 0) {
-                                boss->life = false;
-                                activeBossCount--;
+                                if (bossObj->health <= 0) {
+                                    boss->life = false;
+                                    activeBossCount--;
+                                    auto explosion = std::make_unique<Explosion>();
+                                    explosion->settings(sBossExplosion, boss->x, boss->y);
+                                    entities.push_back(std::move(explosion));
+
+                                    // Spawn 4 regular asteroids when boss is destroyed
+                                    if (bossObj->spawnChildren) {
+                                        for (int i = 0; i < 4; i++) {
+                                            auto a = std::make_unique<Asteroid>();
+                                            a->settings(sRock_small, boss->x, boss->y, rand() % 360, 15);
+                                            // Inherit some boss velocity
+                                            a->dx = boss->dx * 0.5f + (rand() % 4 - 2);
+                                            a->dy = boss->dy * 0.5f + (rand() % 4 - 2);
+                                            entities.push_back(std::move(a));
+                                        }
+                                    }
+
+                                    bossSpawned = activeBossCount > 0;
+                                    asteroidsShotDirectly += 10;
+                                }
+                            }
+                        }
+                        // HomingBullet vs Boss collision
+                        else if ((a->name == "boss" && b->name == "homingbullet") ||
+                                (b->name == "boss" && a->name == "homingbullet")) {
+
+                            Entity* boss = (a->name == "boss") ? a : b;
+                            Entity* bullet = (a->name == "homingbullet") ? a : b;
+
+                            if (isCollide(boss, bullet)) {
+                                bullet->life = false;
+                                BossAsteroid* bossObj = static_cast<BossAsteroid*>(boss);
+                                bossObj->health -= static_cast<HomingBullet*>(bullet)->damage;
+
+                                auto hitEffect = std::make_unique<Explosion>();
+                                hitEffect->settings(sExplosion, bullet->x, bullet->y);
+                                entities.push_back(std::move(hitEffect));
+
+                                if (bossObj->health <= 0) {
+                                    boss->life = false;
+                                    activeBossCount--;
+                                    auto explosion = std::make_unique<Explosion>();
+                                    explosion->settings(sBossExplosion, boss->x, boss->y);
+                                    entities.push_back(std::move(explosion));
+
+                                    // Spawn 4 regular asteroids when boss is destroyed
+                                    if (bossObj->spawnChildren) {
+                                        for (int i = 0; i < 4; i++) {
+                                            auto a = std::make_unique<Asteroid>();
+                                            a->settings(sRock_small, boss->x, boss->y, rand() % 360, 15);
+                                            // Inherit some boss velocity
+                                            a->dx = boss->dx * 0.5f + (rand() % 4 - 2);
+                                            a->dy = boss->dy * 0.5f + (rand() % 4 - 2);
+                                            entities.push_back(std::move(a));
+                                        }
+                                    }
+
+                                    bossSpawned = activeBossCount > 0;
+                                    asteroidsShotDirectly += 10;
+                                }
+                            }
+                        }
+                        // Bullet vs Asteroid collision
+                        else if ((a->name == "asteroid" && b->name == "bullet") ||
+                                (b->name == "asteroid" && a->name == "bullet")) {
+
+                            Entity* asteroid = (a->name == "asteroid") ? a : b;
+                            Entity* bullet = (a->name == "bullet") ? a : b;
+
+                            if (isCollide(asteroid, bullet)) {
+                                asteroid->life = false;
+                                bullet->life = false;
+                                asteroidsShotDirectly++;
+
                                 auto explosion = std::make_unique<Explosion>();
-                                explosion->settings(sBossExplosion, boss->x, boss->y);
+                                explosion->settings(sExplosion, asteroid->x, asteroid->y);
                                 entities.push_back(std::move(explosion));
 
-                                // Spawn 4 regular asteroids when boss is destroyed
-                                if (bossObj->spawnChildren) {
-                                    for (int i = 0; i < 4; i++) {
-                                        auto a = std::make_unique<Asteroid>();
-                                        a->settings(sRock_small, boss->x, boss->y, rand() % 360, 15);
-                                        // Inherit some boss velocity
-                                        a->dx = boss->dx * 0.5f + (rand() % 4 - 2);
-                                        a->dy = boss->dy * 0.5f + (rand() % 4 - 2);
-                                        entities.push_back(std::move(a));
+                                if (asteroid->R != 15) {
+                                    for (int i = 0; i < 2; i++) {
+                                        auto smallAsteroid = std::make_unique<Asteroid>();
+                                        smallAsteroid->settings(sRock_small, asteroid->x, asteroid->y, rand() % 360, 15);
+                                        entities.push_back(std::move(smallAsteroid));
                                     }
                                 }
-
-                                bossSpawned = activeBossCount > 0;
-                                asteroidsShotDirectly += 10;
                             }
                         }
-                    }
-                    // Bullet vs Asteroid collision
-                    else if ((a->name == "asteroid" && b->name == "bullet") ||
-                            (b->name == "asteroid" && a->name == "bullet")) {
+                        // HomingBullet vs Asteroid collision
+                        else if ((a->name == "asteroid" && b->name == "homingbullet") ||
+                                (b->name == "asteroid" && a->name == "homingbullet")) {
 
-                        Entity* asteroid = (a->name == "asteroid") ? a : b;
-                        Entity* bullet = (a->name == "bullet") ? a : b;
+                            Entity* asteroid = (a->name == "asteroid") ? a : b;
+                            Entity* bullet = (a->name == "homingbullet") ? a : b;
 
-                        if (isCollide(asteroid, bullet)) {
-                            asteroid->life = false;
-                            bullet->life = false;
-                            asteroidsShotDirectly++;
+                            if (isCollide(asteroid, bullet)) {
+                                asteroid->life = false;
+                                bullet->life = false;
+                                asteroidsShotDirectly++;
 
-                            auto explosion = std::make_unique<Explosion>();
-                            explosion->settings(sExplosion, asteroid->x, asteroid->y);
-                            entities.push_back(std::move(explosion));
+                                auto explosion = std::make_unique<Explosion>();
+                                explosion->settings(sExplosion, asteroid->x, asteroid->y);
+                                entities.push_back(std::move(explosion));
 
-                            if (asteroid->R != 15) {
-                                for (int i = 0; i < 2; i++) {
-                                    auto smallAsteroid = std::make_unique<Asteroid>();
-                                    smallAsteroid->settings(sRock_small, asteroid->x, asteroid->y, rand() % 360, 15);
-                                    entities.push_back(std::move(smallAsteroid));
-                                }
-                            }
-                        }
-                    }
-                    // HomingBullet vs Asteroid collision
-                    else if ((a->name == "asteroid" && b->name == "homingbullet") ||
-                            (b->name == "asteroid" && a->name == "homingbullet")) {
+                                auto explosionEffect = std::make_unique<ExplosionEffect>();
+                                explosionEffect->x = asteroid->x;
+                                explosionEffect->y = asteroid->y;
+                                entities.push_back(std::move(explosionEffect));
 
-                        Entity* asteroid = (a->name == "asteroid") ? a : b;
-                        Entity* bullet = (a->name == "homingbullet") ? a : b;
-
-                        if (isCollide(asteroid, bullet)) {
-                            asteroid->life = false;
-                            bullet->life = false;
-                            asteroidsShotDirectly++;
-
-                            auto explosion = std::make_unique<Explosion>();
-                            explosion->settings(sExplosion, asteroid->x, asteroid->y);
-                            entities.push_back(std::move(explosion));
-
-                            auto explosionEffect = std::make_unique<ExplosionEffect>();
-                            explosionEffect->x = asteroid->x;
-                            explosionEffect->y = asteroid->y;
-                            entities.push_back(std::move(explosionEffect));
-
-                            if (asteroid->R != 15) {
-                                for (int i = 0; i < 2; i++) {
-                                    auto smallAsteroid = std::make_unique<Asteroid>();
-                                    smallAsteroid->settings(sRock_small, asteroid->x, asteroid->y, rand() % 360, 15);
-                                    entities.push_back(std::move(smallAsteroid));
+                                if (asteroid->R != 15) {
+                                    for (int i = 0; i < 2; i++) {
+                                        auto smallAsteroid = std::make_unique<Asteroid>();
+                                        smallAsteroid->settings(sRock_small, asteroid->x, asteroid->y, rand() % 360, 15);
+                                        entities.push_back(std::move(smallAsteroid));
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            // Update animations and clean up
-            playerPtr->anim = playerPtr->thrust ? sPlayer_go : sPlayer;
-            entities.remove_if([](const std::unique_ptr<Entity>& e) {
-                if (e->name == "explosionEffect" && !e->life) {
-                    asteroidsDestroyedInExplosions += static_cast<ExplosionEffect*>(e.get())->damageDealt;
+                // Update animations and clean up
+                if (playerPtr) {
+                    playerPtr->anim = playerPtr->thrust ? sPlayer_go : sPlayer;
                 }
-                return (e->name == "explosion" && e->anim.isEnd()) ||
-                       (e->name == "explosionEffect" && !e->life) ||
-                       !e->life;
-            });
+                entities.remove_if([](const std::unique_ptr<Entity>& e) {
+                    if (e->name == "explosionEffect" && !e->life) {
+                        asteroidsDestroyedInExplosions += static_cast<ExplosionEffect*>(e.get())->damageDealt;
+                    }
+                    return (e->name == "explosion" && e->anim.isEnd()) ||
+                           (e->name == "explosionEffect" && !e->life) ||
+                           !e->life;
+                });
 
-            // Spawn logic
-            int currentScore = asteroidsShotDirectly + asteroidsDestroyedInExplosions;
-            if (currentScore >= BOSS_TRIGGER_SCORE &&
-                activeBossCount < MAX_BOSS_ASTEROIDS &&
-                rand() % 100 == 0) {
-                spawnBossAsteroid();
-            }
-            else if (!bossSpawned && rand() % 150 == 0) {
-                auto a = std::make_unique<Asteroid>();
-                a->settings(sRock, 0, rand() % H, rand() % 360, 25);
-                entities.push_back(std::move(a));
-            }
-
-            // Update all entities
-            for (auto& e : entities) {
-                e->update();
-                if (e->name != "explosionEffect") {
-                    e->anim.update();
+                // Spawn logic
+                currentScore = asteroidsShotDirectly + asteroidsDestroyedInExplosions;
+                if (currentScore >= BOSS_TRIGGER_SCORE &&
+                    activeBossCount < MAX_BOSS_ASTEROIDS &&
+                    rand() % 100 == 0) {
+                    spawnBossAsteroid();
                 }
+                else if (!bossSpawned && rand() % 150 == 0) {
+                    auto a = std::make_unique<Asteroid>();
+                    a->settings(sRock, 0, rand() % H, rand() % 360, 25);
+                    entities.push_back(std::move(a));
+                }
+
+                // Update all entities
+                for (auto& e : entities) {
+                    e->update();
+                    if (e->name != "explosionEffect") {
+                        e->anim.update();
+                    }
+                }
+                break;
             }
+
+            case GameState::PAUSED:
+                // Pause state doesn't need updates
+                break;
         }
-
-        // Update score display
-        int currentScore = asteroidsShotDirectly + asteroidsDestroyedInExplosions;
-        scoreText.setString("Current: " + std::to_string(currentScore));
-        recordText.setString("Record: " + std::to_string(maxAsteroidsDestroyed));
 
         // Draw everything
         app.clear();
 
-        // Apply brightness
+        // Draw background (for all states)
         sf::Sprite background(t2);
         app.draw(background);
+
+        // Apply brightness
         if (brightness < 1.0f) {
             sf::RectangleShape dimmer(sf::Vector2f(W, H));
             dimmer.setFillColor(sf::Color(0, 0, 0, 255 * (1.0f - brightness)));
             app.draw(dimmer);
         }
 
-        for (auto& e : entities) {
-            e->draw(app);
-            if (e->name == "boss") {
-                drawBossHealth(app, static_cast<BossAsteroid*>(e.get()), font);
+        // Draw game entities (when not in main menu)
+        if (gameState != GameState::MAIN_MENU) {
+            for (auto& e : entities) {
+                e->draw(app);
+                if (e->name == "boss") {
+                    drawBossHealth(app, static_cast<BossAsteroid*>(e.get()), font);
+                }
             }
+
+            // Draw score
+            currentScore = asteroidsShotDirectly + asteroidsDestroyedInExplosions;
+            sf::Text scoreText;
+            scoreText.setString("Score: " + std::to_string(currentScore));
+            scoreText.setFont(font);
+            scoreText.setCharacterSize(24);
+            scoreText.setPosition(20, 20);
+            scoreText.setFillColor(sf::Color::White);
+            app.draw(scoreText);
+
+            // Draw high score
+            sf::Text highScoreText;
+            highScoreText.setString("High Score: " + std::to_string(maxAsteroidsDestroyed));
+            highScoreText.setFont(font);
+            highScoreText.setCharacterSize(24);
+            highScoreText.setPosition(20, 50);
+            highScoreText.setFillColor(sf::Color::White);
+            app.draw(highScoreText);
         }
 
-        // Draw UI
-        app.draw(scoreText);
-        app.draw(recordText);
-        app.draw(pauseButton);
-        app.draw(pauseText);
+        // State-specific UI
+        switch (gameState) {
+            case GameState::MAIN_MENU:
+                drawMenu(app, font);
+                break;
 
-        // Pause overlay
-        if (gamePaused) {
-            sf::RectangleShape overlay(sf::Vector2f(W, H));
-            overlay.setFillColor(sf::Color(0, 0, 0, 150));
-            app.draw(overlay);
+            case GameState::PLAYING: {
+                // Draw pause button
+                sf::RectangleShape pauseBtn(sf::Vector2f(120, 50));
+                pauseBtn.setPosition(W - 140, 20);
+                pauseBtn.setFillColor(sf::Color(70, 70, 70, 220));
+                pauseBtn.setOutlineThickness(2);
+                pauseBtn.setOutlineColor(sf::Color::White);
+                app.draw(pauseBtn);
 
-            sf::Text pausedText("GAME PAUSED", font, 50);
-            pausedText.setPosition(W/2 - pausedText.getLocalBounds().width/2, H/2 - 50);
-            pausedText.setFillColor(sf::Color::White);
-            app.draw(pausedText);
+                sf::Text pauseTxt;
+                pauseTxt.setString("PAUSE");
+                pauseTxt.setFont(font);
+                pauseTxt.setCharacterSize(24);
+                pauseTxt.setPosition(W - 120, 30);
+                pauseTxt.setFillColor(sf::Color::White);
+                app.draw(pauseTxt);
+                break;
+            }
 
-            app.draw(soundButton);
-            app.draw(brightnessButton);
-            app.draw(volumeSliderBackground);
-            app.draw(volumeSlider);
-            app.draw(soundText);
-            app.draw(brightnessText);
-            app.draw(volumeText);
+            case GameState::PAUSED:
+                drawPauseMenu(app);
+                break;
         }
 
         app.display();
     }
+
+    // Clean up
+    delete startButton;
+    delete exitButton;
 
     return EXIT_SUCCESS;
 }
