@@ -347,7 +347,10 @@ int main() {
 
                         if (isCollide(player, asteroid)) {
                             asteroid->life = false;
-                            if (asteroid->name == "boss") activeBossCount--;
+                            if (asteroid->name == "boss") {
+                                static_cast<BossAsteroid*>(asteroid)->spawnChildren = false;
+                                activeBossCount--;
+                            }
 
                             int totalDestroyed = asteroidsShotDirectly + asteroidsDestroyedInExplosions;
                             maxAsteroidsDestroyed = std::max(maxAsteroidsDestroyed, totalDestroyed);
@@ -404,6 +407,18 @@ int main() {
                                 explosion->settings(sBossExplosion, boss->x, boss->y);
                                 entities.push_back(std::move(explosion));
 
+                                // Spawn 4 regular asteroids when boss is destroyed
+                                if (bossObj->spawnChildren) {
+                                    for (int i = 0; i < 4; i++) {
+                                        auto a = std::make_unique<Asteroid>();
+                                        a->settings(sRock_small, boss->x, boss->y, rand() % 360, 15);
+                                        // Inherit some boss velocity
+                                        a->dx = boss->dx * 0.5f + (rand() % 4 - 2);
+                                        a->dy = boss->dy * 0.5f + (rand() % 4 - 2);
+                                        entities.push_back(std::move(a));
+                                    }
+                                }
+
                                 bossSpawned = activeBossCount > 0;
                                 asteroidsShotDirectly += 10;
                             }
@@ -431,6 +446,18 @@ int main() {
                                 auto explosion = std::make_unique<Explosion>();
                                 explosion->settings(sBossExplosion, boss->x, boss->y);
                                 entities.push_back(std::move(explosion));
+
+                                // Spawn 4 regular asteroids when boss is destroyed
+                                if (bossObj->spawnChildren) {
+                                    for (int i = 0; i < 4; i++) {
+                                        auto a = std::make_unique<Asteroid>();
+                                        a->settings(sRock_small, boss->x, boss->y, rand() % 360, 15);
+                                        // Inherit some boss velocity
+                                        a->dx = boss->dx * 0.5f + (rand() % 4 - 2);
+                                        a->dy = boss->dy * 0.5f + (rand() % 4 - 2);
+                                        entities.push_back(std::move(a));
+                                    }
+                                }
 
                                 bossSpawned = activeBossCount > 0;
                                 asteroidsShotDirectly += 10;
