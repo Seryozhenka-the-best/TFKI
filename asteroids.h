@@ -2,6 +2,7 @@
 #define ASTEROIDS_HPP
 
 #include <SFML/Graphics.hpp>
+#include <SFML/Audio.hpp>
 #include <list>
 #include <vector>
 #include <string>
@@ -11,26 +12,45 @@
 #include <memory>
 
 // Game constants
-const int W = 1200;
-const int H = 800;
-const float DEGTORAD = 0.017453f;
-const int BOSS_TRIGGER_SCORE = 25;
-const int MAX_BOSS_ASTEROIDS = 3;
-const int INITIAL_ASTEROIDS = 15;
-const int BOSS_SPAWN_COUNT = 4;  // Added constant for boss spawn count
+constexpr int W = 1200;
+constexpr int H = 800;
+constexpr float DEGTORAD = 0.017453f;
+constexpr int BOSS_TRIGGER_SCORE = 25;
+constexpr int MAX_BOSS_ASTEROIDS = 3;
+constexpr int INITIAL_ASTEROIDS = 15;
+constexpr int BOSS_SPAWN_COUNT = 4;
+constexpr int REGULAR_BULLET_DAMAGE = 1;
+constexpr int HOMING_BULLET_DAMAGE = 5;
+constexpr int BOSS_MAX_HEALTH = 15;
 
-// Damage constants
-const int REGULAR_BULLET_DAMAGE = 1;
-const int HOMING_BULLET_DAMAGE = 5;
-const int BOSS_MAX_HEALTH = 15;
+// Game state enum
+enum class GameState {
+    MAIN_MENU,
+    PLAYING,
+    PAUSED,
+    GAME_OVER
+};
+
+// Forward declarations
+class Entity;
+class Animation;
+class Button;
+class Player;
+class Asteroid;
+class BossAsteroid;
+class Bullet;
+class HomingBullet;
+class Explosion;
+class ExplosionEffect;
 
 // Global game state
-extern std::list<std::unique_ptr<class Entity>> entities;
+extern std::list<std::unique_ptr<Entity>> entities;
+extern bool bossSpawned;
 extern int asteroidsShotDirectly;
 extern int asteroidsDestroyedInExplosions;
 extern int maxAsteroidsDestroyed;
 extern int activeBossCount;
-extern bool bossSpawned;
+extern GameState gameState;
 
 class Animation {
 public:
@@ -59,6 +79,62 @@ public:
 
     bool isEnd() const {
         return Frame + speed >= frames.size();
+    }
+};
+
+class Button {
+public:
+    sf::RectangleShape shape;
+    sf::Text text;
+    sf::Color normalColor;
+    sf::Color hoverColor;
+    sf::Color clickColor;
+    bool isHovered = false;
+
+    Button(const std::string& btnText, sf::Font& font, unsigned int characterSize,
+           sf::Vector2f position, sf::Vector2f size) {
+        shape.setSize(size);
+        shape.setPosition(position);
+
+        text.setString(btnText);
+        text.setFont(font);
+        text.setCharacterSize(characterSize);
+        text.setPosition(
+            position.x + (size.x - text.getLocalBounds().width) / 2,
+            position.y + (size.y - text.getLocalBounds().height) / 2 - 5
+        );
+
+        normalColor = sf::Color(70, 70, 70, 220);
+        hoverColor = sf::Color(100, 100, 100, 220);
+        clickColor = sf::Color(50, 50, 50, 220);
+
+        shape.setFillColor(normalColor);
+        shape.setOutlineThickness(2);
+        shape.setOutlineColor(sf::Color::White);
+    }
+
+    void setColors(sf::Color normal, sf::Color hover, sf::Color click) {
+        normalColor = normal;
+        hoverColor = hover;
+        clickColor = click;
+    }
+
+    void update(const sf::Vector2f& mousePos) {
+        isHovered = shape.getGlobalBounds().contains(mousePos);
+        shape.setFillColor(isHovered ? hoverColor : normalColor);
+    }
+
+    bool isClicked(const sf::Vector2f& mousePos, sf::Mouse::Button button) {
+        if (shape.getGlobalBounds().contains(mousePos) && sf::Mouse::isButtonPressed(button)) {
+            shape.setFillColor(clickColor);
+            return true;
+        }
+        return false;
+    }
+
+    void draw(sf::RenderWindow& window) {
+        window.draw(shape);
+        window.draw(text);
     }
 };
 
@@ -153,7 +229,7 @@ public:
 class BossAsteroid : public Entity {
 public:
     int health = BOSS_MAX_HEALTH;
-    bool spawnChildren = true;  // Controls whether to spawn asteroids when destroyed
+    bool spawnChildren = true;
 
     BossAsteroid() {
         name = "boss";
@@ -197,7 +273,7 @@ public:
     }
 
     void update() override {
-        // Find closest target (asteroid or boss)
+        // Find closest target
         float minDist = std::numeric_limits<float>::max();
         target = nullptr;
 
@@ -211,16 +287,15 @@ public:
             }
         }
 
-        // If target found, adjust angle
+        // Adjust angle if target found
         if (target && target->life) {
             float targetAngle = atan2(target->y - y, target->x - x) / DEGTORAD;
             float angleDiff = targetAngle - angle;
 
-            // Normalize angle difference
             while (angleDiff > 180) angleDiff -= 360;
             while (angleDiff < -180) angleDiff += 360;
 
-            angle += angleDiff * 0.1f; // Gradual turn
+            angle += angleDiff * 0.1f;
         }
 
         dx = cos(angle * DEGTORAD) * 6;
@@ -259,5 +334,15 @@ public:
         if (y > H) y = 0; if (y < 0) y = H;
     }
 };
+
+// Game functions
+bool isCollide(const Entity* a, const Entity* b);
+void spawnInitialAsteroids();
+void spawnBossAsteroid();
+void drawBossHealth(sf::RenderWindow& app, const BossAsteroid* boss, sf::Font& font);
+void initMenu(sf::Font& font);
+void drawMenu(sf::RenderWindow& app, sf::Font& font);
+void handleMenuEvents(sf::RenderWindow& app, sf::Event& event);
+void resetGame();
 
 #endif // ASTEROIDS_HPP
