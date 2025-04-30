@@ -17,6 +17,7 @@ const float DEGTORAD = 0.017453f;
 const int BOSS_TRIGGER_SCORE = 25;
 const int MAX_BOSS_ASTEROIDS = 3;
 const int INITIAL_ASTEROIDS = 15;
+const int BOSS_SPAWN_COUNT = 4;  // Added constant for boss spawn count
 
 // Damage constants
 const int REGULAR_BULLET_DAMAGE = 1;
@@ -152,6 +153,7 @@ public:
 class BossAsteroid : public Entity {
 public:
     int health = BOSS_MAX_HEALTH;
+    bool spawnChildren = true;  // Controls whether to spawn asteroids when destroyed
 
     BossAsteroid() {
         name = "boss";
