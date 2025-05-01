@@ -596,9 +596,9 @@ int main() {
                                     explosion->settings(sBossExplosion, boss->x, boss->y);
                                     entities.push_back(std::move(explosion));
 
-                                    // Spawn 4 regular asteroids when boss is destroyed
+                                    // Spawn 8 regular asteroids when boss is destroyed
                                     if (bossObj->spawnChildren) {
-                                        for (int i = 0; i < 4; i++) {
+                                        for (int i = 0; i < 8; i++) {
                                             auto a = std::make_unique<Asteroid>();
                                             a->settings(sRock_small, boss->x, boss->y, rand() % 360, 15);
                                             // Inherit some boss velocity
@@ -636,7 +636,7 @@ int main() {
                                     explosion->settings(sBossExplosion, boss->x, boss->y);
                                     entities.push_back(std::move(explosion));
 
-                                    // Spawn 4 regular asteroids when boss is destroyed
+                                    // Spawn 8 regular asteroids when boss is destroyed
                                     if (bossObj->spawnChildren) {
                                         for (int i = 0; i < 8; i++) {
                                             auto a = std::make_unique<Asteroid>();
