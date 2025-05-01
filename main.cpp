@@ -197,7 +197,7 @@ void initMenu(sf::Font& font) {
 void drawMenu(sf::RenderWindow& app, sf::Font& font) {
     // Draw title
     sf::Text title;
-    title.setString("ASTEROIDS");
+    title.setString("ASTEROIDS SURVIVAL");
     title.setFont(font);
     title.setCharacterSize(80);
     title.setPosition(W/2 - title.getLocalBounds().width/2, H/4);
@@ -207,7 +207,7 @@ void drawMenu(sf::RenderWindow& app, sf::Font& font) {
 
     // Draw version/subtitle
     sf::Text version;
-    version.setString("Classic Arcade Game");
+    version.setString("Run and Fire");
     version.setFont(font);
     version.setCharacterSize(24);
     version.setPosition(W/2 - version.getLocalBounds().width/2, H/4 + 90);
@@ -638,7 +638,7 @@ int main() {
 
                                     // Spawn 4 regular asteroids when boss is destroyed
                                     if (bossObj->spawnChildren) {
-                                        for (int i = 0; i < 4; i++) {
+                                        for (int i = 0; i < 8; i++) {
                                             auto a = std::make_unique<Asteroid>();
                                             a->settings(sRock_small, boss->x, boss->y, rand() % 360, 15);
                                             // Inherit some boss velocity
