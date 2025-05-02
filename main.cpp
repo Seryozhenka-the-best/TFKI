@@ -406,7 +406,7 @@ int main() {
     initMenu(font);
 
     // Audio initialization
-    if (!backgroundMusic.openFromFile("doom.ogg")) {
+    if (!backgroundMusic.openFromFile("Game.ogg")) {
         std::cerr << "Failed to load background music!" << std::endl;
     } else {
         backgroundMusic.setLoop(true);
